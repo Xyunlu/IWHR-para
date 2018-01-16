@@ -59,11 +59,10 @@ C===========================================================C
        module mymodule
        contains
          subroutine CRS2DMSR(myid,N,nextern,update,na,ia,a,
-     +                      bindx,val,b,x,external,extern_index)
+     +                      bindx,val,b,x)
          implicit none
          integer :: N,update(*),na(*),ia(*)
          double precision :: a(*)
-         integer, dimension(:), allocatable :: external, extern_index
          integer, dimension(:), allocatable :: bindx
          double precision, dimension(:), allocatable :: val,b,x
          integer myid,i,j,k,l,n0,n1,row,col,nnz,nextern,ise
@@ -96,7 +95,7 @@ C===========================================================C
                bindx(k) = col-1
                ise = 1
                do l=1, N
-                 if( col .eq. update(l)) then
+                 if( col-1 .eq. update(l)) then
                    ise = 0
                    exit
                  endif
@@ -106,12 +105,13 @@ C===========================================================C
            enddo
            bindx(i+1) = k
          enddo
-c         if( myid.eq.1) then
-c           print *,'nextern = ', nextern
+
+         if( myid.eq.0) then
+           print *,'nextern = ', nextern
 c           print *,'bindx:', (bindx(i),i=1,nnz+1)
 c           print *,'val:', (val(i),i=1,nnz+1)
-c         endif
-         allocate(external(nextern), extern_index(nextern))
+         endif
+c         allocate(external(nextern), extern_index(nextern))
          allocate(b(N), x(N+nextern))
 
          end subroutine

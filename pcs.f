@@ -2885,7 +2885,7 @@ C           !找出每个自由度的相关自由度，并存放在NAI内。这�
                 na(ijn) = na(ijn) + 1
                 if( na(ijn) > maxbnd ) then
                    write(*,*) "Error! na .gt. Maxbnd", na(ijn), maxbnd
-                   call endjob()
+                   call My_endjob()
                 endif
                 nai((ijn-1)*maxbnd + na(ijn)) = ijn1
                 nnz = nnz + 1

@@ -206,7 +206,7 @@ C           this element is a inner element of this block
                 write(*,*) 'inod =', inod, ',knodei =', knodei
                 write(*,*) 'nodi =', nodi,',part(nodi)=',part(nodi)
                 write(*,*) 'mype = ', mype, knodei, nod_gidx(knodei)
-                call endjob(ierr)
+                call My_endjob(ierr)
               endif
 C......     There are some node of this element is not belong to this
 C           block, this element is a bound element of this block

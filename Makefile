@@ -1,6 +1,6 @@
 PMETISROOT=/md3220i/home/supery/working/pmetis
 INCLUDE = -I. -I$(PMETISROOT)/include -I$(PMETISROOT)/metis/GKlib -I$(PMETISROOT)/metis/include -I$(PMETISROOT)/programs/.
-LIBS = /opt/itplibs/libfepg.a $(PMETISROOT)/lib/libparmetis.a $(PMETISROOT)/lib/libmetis.a -lm
+LIBS = libaztec.a $(PMETISROOT)/lib/libparmetis.a $(PMETISROOT)/lib/libmetis.a -lm
 #LIBS = /opt/itplibs/libfepg.a /opt/itplibs/libblas.a /opt/itplibs/libmetis.a /opt/itplibs/libfepgsolv.a /opt/itplibs/superlu_linux.a /opt/itplibs/blas_linux.a /md3220i/home/xiaojie/super/pmetis/lib/libparmetis.a /md3220i/home/xiaojie/super/pmetis/lib/libmetis.a -lm
 
 BINDIR = ../bin
@@ -11,7 +11,7 @@ FC = mpif77
 CC = mpicc
 .SUFFIXES: .o .f .c
 
-OBJS = module.o pcs.o partmesh.o mylib.o partsub0.o partcoor.o
+OBJS = module.o pcs.o partmesh.o mylib.o partsub0.o partcoor.o solvsub.o
 
 all: pcs
 
