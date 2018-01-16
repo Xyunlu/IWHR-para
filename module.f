@@ -48,18 +48,21 @@ C===========================================================C
         integer, dimension(:), allocatable :: na, ia
         double precision, dimension(:), allocatable :: val, rhs, sol
 
-        integer, dimension(:), allocatable :: maplg, imaplg
+c        integer, dimension(:), allocatable :: maplg, imaplg
         integer :: n_update, n_external
         integer, dimension(:), allocatable :: update, external
         integer, dimension(:), allocatable :: update_index, extern_index
+
+        integer, dimension(:), allocatable :: bindx
+        real*8, dimension(:), allocatable :: va
         integer :: nupdate(0:1024)
 
       End Module FEMData
 C===========================================================C
-       module mymodule
+       module solvmodule
        contains
-         subroutine CRS2DMSR(myid,N,nextern,update,na,ia,a,
-     +                      bindx,val,b,x)
+         subroutine DCRS2DMSR(myid,N,nextern,na,ia,a,
+     +                      update,bindx,val,b,x)
          implicit none
          integer :: N,update(*),na(*),ia(*)
          double precision :: a(*)
@@ -69,22 +72,24 @@ C===========================================================C
 
          nnz = 0
          do i=1, N
-           row = update(i)
-           n0 = na(row)
-           n1 = na(row+1)
+           n0 = na(i)
+           n1 = na(i+1)
            nnz = nnz + n1 - n0
            update(i) = update(i) - 1
          enddo
 
+         print *,'In crs2dmsr: myid,N_update,nnz=', myid, N,nnz
+
+         if( allocated(bindx) ) deallocate(bindx, val) 
          allocate(bindx(nnz+1),val(nnz+1))
 
-         bindx(1) = N+1
          k = N+1
+         bindx(1) = k
          nextern = 0
          do i=1, N
-           row = update(i)+1
-           n0 = na(row)
-           n1 = na(row+1)-1
+           row = update(i) + 1
+           n0 = na(i)
+           n1 = na(i+1)-1
            do j=n0, n1
              col = ia(j)
              if( col .eq. row) then
@@ -111,7 +116,8 @@ C===========================================================C
 c           print *,'bindx:', (bindx(i),i=1,nnz+1)
 c           print *,'val:', (val(i),i=1,nnz+1)
          endif
+         if ( allocated(b) ) deallocate(b, x)
          allocate(b(N), x(N+nextern))
 
          end subroutine
-       end module mymodule
+       end module solvmodule

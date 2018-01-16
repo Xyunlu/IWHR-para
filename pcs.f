@@ -528,6 +528,7 @@ C
       SUBROUTINE ZL25(IFO,KK)
       USE ComData
       USE FEMData
+      USE solvmodule
 c      implicit real*8(a-h,o-z)
       COMMON /A13/ET(MAXN),UT(MAXN),GAMT(MAXN)
       COMMON /A4/N,NH,MX,JR(3,MAXN)
@@ -558,15 +559,16 @@ c      implicit real*8(a-h,o-z)
         IF(IFO.EQ.5)  R(I)=0.5*RR(I)
         IF(IFO.EQ.10) R(I)=RR(I)
 30    CONTINUE
-      return
 
       WRITE(*,*)'EQUATION SOLVING STARTING'
-      call CSR2DMSR(mype,N_update,N_external,
-     +              update,na,ia,a,
-     +              bindx,val,rhs,sol)
+      call DCRS2DMSR(mype,N_update,N_external,
+     +              na,ia,val,
+     +              update,bindx,va,rhs,sol)
+      print *,'mype, N_update,N_external=',mype,N_update,N_external
 c      call SSORPCG
-c      call azsolv
+c      call azsolv()
       WRITE(*,*)'EQUATION SOLVING FINISH'
+      return
       
       DO 40 I=1,N
       
@@ -2658,6 +2660,8 @@ c60    CONTINUE
         enddo
       enddo
 
+      print *,'mype,knode0 =', mype, knode0
+
       ! 剔除本加载步不加载的单元包含的节点
       do i=1, knode_i
         if( node0(i) .eq. 1) cycle
@@ -2729,6 +2733,9 @@ c        if(jr(j,i) > 0) goto 50
         ENDIF
 60    CONTINUE
 70    CONTINUE
+
+      write(*,*) 'JRL(j,NO)=',(JRL(j,NO),j=1,3)
+      write(*,*) 'JRL(j,NO+1)=',(JRL(j,NO+1),j=1,3)
 c      write(*,*) 'mype=',mype,'N=', N, 'knode,knode_i=', knode, knode_i
 
       if( mype .eq. 0) then
@@ -2757,6 +2764,7 @@ c      write(*,*) 'mype, N, Ns =', mype, N, Ns
       allocate(update_index(N), STAT = AllocateStatus)
       IF (AllocateStatus .NE. 0) STOP "* allocate update_index error *"
      
+      print *,'mype,knode,knode_i,NO=',mype,knode,knode_i,NO
       Nt = 0
       do i=1, NO
         do j=1, 3
@@ -2773,9 +2781,10 @@ c      write(*,*) 'mype, N, Ns =', mype, N, Ns
       enddo
       if(Nt .ne. N_update) then
         write(*,*) "Error,Nt, N_update=", Nt, N_update
-        stop 000
+        call My_endjob(ierr)
       endif
 
+      N_external = 0
       write(ext,'(i5)') mype
       filename='conn_' // trim(adjustl(ext))
       open(21,file=filename,form='formatted',status='old')
@@ -2789,6 +2798,10 @@ c        write(*,*) 'mype, isend, ntmp_s=', mype, isend, ntmp
         allocate(ipool(ntmp))
         do j=1,nsend
           inod = neighs(j)
+          if(inod .gt. knode_i .and. inod .le. 0) then
+            print *,'Error!! inod, knode=',inod, knode
+            call My_endjob(ierr)
+          endif
           do k=1,kdgof
             ipool((j-1)*kdgof+k) = JRG(k,inod)
 c            ipool((j-1)*kdgof+k) = 0
@@ -2808,17 +2821,21 @@ c        write(*,*) 'mype, irecv, ntmp_r=', mype, irecv, ntmp
           inod = neighr(j)
           if(inod .gt. knode .and. inod .le. 0) then
             print *,'Error!! inod, knode=',inod, knode
+            call My_endjob(ierr)
           endif
           do k=1,kdgof
             if( (j-1)*kdgof+k .gt. ntmp ) then
               print *,'(j-1)*kdgof+k, ntmp=',(j-1)*kdgof+k, ntmp
             endif
             JRG(inod,k) = ipool((j-1)*kdgof+k)
+            if( JRG(inod,k) > 0) N_external = N_external + 1
           enddo
         enddo
         deallocate(neighr, ipool)
       enddo
       close(21)
+
+      write(*,*) 'mype, N_update,N_external=',mype,N_update,N_external
 
 100   FORMAT('JRL=',4(4I4,2X))
 
@@ -2826,7 +2843,7 @@ c        write(*,*) 'mype, irecv, ntmp_r=', mype, irecv, ntmp
       END
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!    SUBRUTINE NHMA0    !!!!!!!!!!!!!
-!     FUNCTION            形成系数矩阵CRS格式存储空间(na, ia, a)
+!     FUNCTION            形成系数矩阵DCRS格式存储空间(na, ia, a)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE NHMA0(kk)
       USE ComData
@@ -2897,7 +2914,7 @@ C           !找出每个自由度的相关自由度，并存放在NAI内。这�
           enddo
         enddo
       enddo
-      write(*,*) 'mype, nnz = ', mype, nnz
+c      write(*,*) 'mype, nnz = ', mype, nnz
 
 
       ! 整理非零元结构
@@ -2918,6 +2935,7 @@ C           !找出每个自由度的相关自由度，并存放在NAI内。这�
         enddo
       enddo
       write(*,*) 'mype,nnz,na =', mype, nnz, na(N_update+1)
+c      if(mype.eq.1) write(*,*) 'ia(1:100)=', (ia(i),i=1,100)
       if( allocated(nai) ) deallocate(nai)
 
       return

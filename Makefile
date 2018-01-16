@@ -11,7 +11,7 @@ FC = mpif77
 CC = mpicc
 .SUFFIXES: .o .f .c
 
-OBJS = module.o pcs.o partmesh.o mylib.o partsub0.o partcoor.o solvsub.o
+OBJS = module.o pcs.o partmesh.o mylib.o partsub0.o partcoor.o solvsub.o qsort.o
 
 all: pcs
 
