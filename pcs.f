@@ -561,7 +561,10 @@ c      implicit real*8(a-h,o-z)
       return
 
       WRITE(*,*)'EQUATION SOLVING STARTING'
-      call SSORPCG
+      call CSR2DMSR(mype,N_update,N_external,
+     +              update,na,ia,a,
+     +              bindx,val,rhs,sol)
+c      call SSORPCG
 c      call azsolv
       WRITE(*,*)'EQUATION SOLVING FINISH'
       

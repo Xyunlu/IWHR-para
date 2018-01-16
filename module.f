@@ -49,7 +49,7 @@ C===========================================================C
         double precision, dimension(:), allocatable :: val, rhs, sol
 
         integer, dimension(:), allocatable :: maplg, imaplg
-        integer :: n_update, n_update0, n_external0, n_external
+        integer :: n_update, n_external
         integer, dimension(:), allocatable :: update, external
         integer, dimension(:), allocatable :: update_index, extern_index
         integer :: nupdate(0:1024)
@@ -111,7 +111,6 @@ C===========================================================C
 c           print *,'bindx:', (bindx(i),i=1,nnz+1)
 c           print *,'val:', (val(i),i=1,nnz+1)
          endif
-c         allocate(external(nextern), extern_index(nextern))
          allocate(b(N), x(N+nextern))
 
          end subroutine
