@@ -46,15 +46,15 @@ C===========================================================C
         ! 定义求解器所需数据
         integer :: nnz
         integer, dimension(:), allocatable :: na, ia
-        double precision, dimension(:), allocatable :: val, rhs, sol
+        double precision, dimension(:), allocatable :: am, rhs, sol
 
 c        integer, dimension(:), allocatable :: maplg, imaplg
-        integer :: n_update, n_external
+        integer :: N_update, N_external
         integer, dimension(:), allocatable :: update, external
         integer, dimension(:), allocatable :: update_index, extern_index
 
         integer, dimension(:), allocatable :: bindx
-        real*8, dimension(:), allocatable :: va
+        real*8, dimension(:), allocatable :: val
         integer :: nupdate(0:1024)
 
       End Module FEMData
@@ -66,9 +66,10 @@ C===========================================================C
          implicit none
          integer :: N,update(*),na(*),ia(*)
          double precision :: a(*)
-         integer, dimension(:), allocatable :: bindx
+         integer, dimension(:), allocatable :: bindx, external
          double precision, dimension(:), allocatable :: val,b,x
-         integer myid,i,j,k,l,n0,n1,row,col,nnz,nextern,ise
+         integer myid,i,j,k,l,n0,n1,row,col,nnz,nextern,ise,ise1
+         integer ierr, nodiag, N_extern
 
          nnz = 0
          do i=1, N
@@ -78,24 +79,57 @@ C===========================================================C
            update(i) = update(i) - 1
          enddo
 
-         print *,'In crs2dmsr: myid,N_update,nnz=', myid, N,nnz
+         if(myid.eq.0) then
+           print *,'In crs2dmsr: myid,N_update,N_external=', myid,N,nextern
+c           print *,'update:', (update(i),i=1,N)
+c           print *,'na(1), na(N+1),ia(nnz) =', na(1), na(N+1),ia(nnz)
+c           print *,'a(1), a(N+1),a(nnz) =', a(1), a(N+1),a(nnz)
+         endif
 
-         if( allocated(bindx) ) deallocate(bindx, val) 
-         allocate(bindx(nnz+1),val(nnz+1))
+         if( allocated(bindx) ) deallocate(bindx, val, external) 
+         allocate(bindx(nnz+1),val(nnz+1),external(nextern))
+
+         if(myid .eq. 0) then
+           N_extern = 0
+           do i=1, nnz
+             col = ia(i)
+             if( col > N) then
+               ise = 1
+               do j=1, N_extern
+                 if( col == external(j)) then
+                   ise = 0
+                   cycle
+                 endif
+               enddo
+               if( ise == 1) then
+                 N_extern = N_extern + 1
+                 external(N_extern) = col
+               endif
+             endif
+           enddo
+           print *,'myid, N_extern = ', myid, N_extern
+           print *,'external:', (external(j),j=1, N_extern)
+         endif
 
          k = N+1
          bindx(1) = k
-         nextern = 0
+         N_extern = 0
          do i=1, N
            row = update(i) + 1
-           n0 = na(i)
-           n1 = na(i+1)-1
+           n0 = na(i)+1
+           n1 = na(i+1)
+           nodiag = 0
            do j=n0, n1
              col = ia(j)
-             if( col .eq. row) then
+             if( col .eq. row ) then
                val(i) = a(j)
+               nodiag = 1
              else
                k = k+1
+               if( k > nnz+1) then
+                 print *,'Error!! k > nnz+1 !!!', k, nnz+1
+                 call My_endjob(ierr)
+               endif
                val(k) = a(j)
                bindx(k) = col-1
                ise = 1
@@ -105,14 +139,41 @@ C===========================================================C
                    exit
                  endif
                enddo
-               if(ise .ne. 0) nextern = nextern + 1
+               if(ise == 1)  then
+                 ise1 = 1
+                 do l=1, N_extern
+                   if( col-1 == external(l)) then
+                     ise1 = 0
+                     exit
+                   endif
+                 enddo
+                 if( ise1 == 1 ) then
+                   N_extern = N_extern + 1
+                   external(N_extern) = col -1
+                   if(myid .eq. 0) then
+                     print *,'N_extern, external=', N_extern, col-1
+                   endif
+                 endif
+               endif
              endif
            enddo
+           if( nodiag == 0) then
+             print *,'Error! Not found diag of a matrix!'
+             print *,'myid,i,row=',myid,i,row
+             call My_endjob(ierr)
+           endif
            bindx(i+1) = k
          enddo
 
+         if( N_extern > nextern) then
+           write(*,*) 'Error in DCRS2DMRS!'
+           write(*,*) 'myid, N_extern, nextern=',myid,N_extern,nextern
+           write(*,*) 'external:', (external(i),i=1, nextern)
+           call My_endjob(ierr)
+         endif
+c         print *,'myid, N_update, N_extern=', myid, N, N_extern
          if( myid.eq.0) then
-           print *,'nextern = ', nextern
+c           print *,'nextern = ', nextern
 c           print *,'bindx:', (bindx(i),i=1,nnz+1)
 c           print *,'val:', (val(i),i=1,nnz+1)
          endif

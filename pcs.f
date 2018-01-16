@@ -561,10 +561,11 @@ c      implicit real*8(a-h,o-z)
 30    CONTINUE
 
       WRITE(*,*)'EQUATION SOLVING STARTING'
+      print *,'mype,N_update=', mype, N_update
       call DCRS2DMSR(mype,N_update,N_external,
-     +              na,ia,val,
-     +              update,bindx,va,rhs,sol)
-      print *,'mype, N_update,N_external=',mype,N_update,N_external
+     +              na,ia,am,
+     +              update,bindx,val,rhs,sol)
+      print *,'after tran,mype, N_update,N_external=',mype,N_update,N_external
 c      call SSORPCG
 c      call azsolv()
       WRITE(*,*)'EQUATION SOLVING FINISH'
@@ -1129,22 +1130,22 @@ c        GAM=GAMT(K)
         DO 45 II=1,8               !单刚中的行节点
 c          IV=IPE(K,II)
           IV=node((K-1)*8+II)
-          IF(IV.EQ.0 .or. IV.gt.knode_i) GO TO 45 ! 只合成内部节点
+          IF(IV.EQ.0) GO TO 45 ! 只合成内部节点
           IQ1=(II-1)*3
           DO 40 IJ=1,3
-c            IU=JR(IJ,IV)          !局部自由度编号
+c            IU=JR(IJ,IV)          !自由度编号
             IU=JRL(IJ,IV)          !局部自由度编号
             IP1=IQ1+IJ             !本自由度对应的单刚行号
             IF(IU.EQ.0) GOTO 40
 c            JV=MA(IU)
-            JV = NA(IU)-1
+            JV = NA(IU)            !该行非零元在总刚中的起始位置
             DO 55 JI=1,8           !单刚中的列节点
 c              IW=IPE(K,JI)
               IW=node((K-1)*8+JI)  !列节点编号
               IF(IW.EQ.0) GO TO 55
               IQ2=(JI-1)*3
               DO 50 JJ=1,3         !列节点自由度循环
-                IP2=IQ2+JJ         !列节点自由度对应的列号
+                IP2=IQ2+JJ         !列节点自由度对应单刚中的列号
 c                IX=JR(JJ,IW)
                 IX=JRG(JJ,IW)      !列节点自由度对应的整体列号(方程号)
                 IF(IX.EQ.0)  GOTO 50
@@ -1160,7 +1161,7 @@ c                  k2=ICOL(k1)
                   k2=ia(k1)              !非零元对应的列号
                   if(k2.eq.ix) then      !累加单刚到总刚
 c                    sk(k1)=sk(k1)+ske(ip1,ip2)
-                     val(k1) = val(k1)+ske(ip1,ip2)
+                     am(k1) = am(k1)+ske(ip1,ip2)
                     goto 26
                   endif
 25              continue
@@ -2637,8 +2638,8 @@ c        JRL(2,I)=0
 c        JRL(3,I)=0
 c60    CONTINUE
 
-      allocate(node0(knode_i))
-      do i=1,knode_i
+      allocate(node0(knode))
+      do i=1,knode
         node0(i) = 0
       enddo
 
@@ -2660,10 +2661,8 @@ c60    CONTINUE
         enddo
       enddo
 
-      print *,'mype,knode0 =', mype, knode0
-
       ! 剔除本加载步不加载的单元包含的节点
-      do i=1, knode_i
+      do i=1, knode
         if( node0(i) .eq. 1) cycle
         JRL(1,I)=0
         JRL(2,I)=0
@@ -2734,8 +2733,6 @@ c        if(jr(j,i) > 0) goto 50
 60    CONTINUE
 70    CONTINUE
 
-      write(*,*) 'JRL(j,NO)=',(JRL(j,NO),j=1,3)
-      write(*,*) 'JRL(j,NO+1)=',(JRL(j,NO+1),j=1,3)
 c      write(*,*) 'mype=',mype,'N=', N, 'knode,knode_i=', knode, knode_i
 
       if( mype .eq. 0) then
@@ -2771,7 +2768,8 @@ c      write(*,*) 'mype, N, Ns =', mype, N, Ns
           if( JRL(j,i) > 0 ) then
             Nt = Nt + 1
             if( Nt <=0 .or. Nt > N ) then
-               print *,'i,j,nt=', i,j,nt
+               print *,'Error!!i,j,nt=', i,j,nt
+               call My_endjob(ierr)
             endif
             JRG(j,i) = JRL(j,i) + Ns
             update(Nt) = JRG(j,i)
@@ -2827,15 +2825,21 @@ c        write(*,*) 'mype, irecv, ntmp_r=', mype, irecv, ntmp
             if( (j-1)*kdgof+k .gt. ntmp ) then
               print *,'(j-1)*kdgof+k, ntmp=',(j-1)*kdgof+k, ntmp
             endif
-            JRG(inod,k) = ipool((j-1)*kdgof+k)
-            if( JRG(inod,k) > 0) N_external = N_external + 1
+            JRG(k,inod) = ipool((j-1)*kdgof+k)
+            if( JRG(k,inod) > 0) then
+              N_external = N_external + 1
+c              if( mype == 0 ) then
+c                print *,'mype,N_external,JRG=',mype,N_external,JRG(k,inod)
+c              endif
+            endif
           enddo
         enddo
         deallocate(neighr, ipool)
       enddo
       close(21)
 
-      write(*,*) 'mype, N_update,N_external=',mype,N_update,N_external
+      write(*,*) mype,'--MR--N_update,N_external=',N_update,N_external
+      write(*,*) mype,'nnode(1) = ', nnode(1)
 
 100   FORMAT('JRL=',4(4I4,2X))
 
@@ -2858,13 +2862,14 @@ c      implicit real*8(a-h,o-z)
       DIMENSION ISEQ(160,510000),NSORT(159)
 
       integer, dimension(:), allocatable :: nai
-            
+      integer ise
+
       ! 根据单元信息计算非零元个数
 
       NEJK = II0(kk)
       num = mnode(1)
       if( allocated(na) ) deallocate(na)
-      allocate(na(N_update+1))
+      allocate(na(N+1))
 
 C     !每个自由度最多81个相关自由度（含自身）.
       maxbnd = 81
@@ -2879,20 +2884,32 @@ C     !每个自由度最多81个相关自由度（含自身）.
       enddo
 
       ! 初步形成非零元结构
+      nextern = 0
       nnz = 0
       do IE=1,num
         if( ie_lg(IE) .gt. NEJK ) cycle
         do i=1, 8
           iv = node((IE-1)*nnode(1)+i)
-          if( iv == 0 .or. iv > knode_i)  cycle
+          if( iv > knode) then
+            write(*,*) 'Error!mype,iv,ie,i,knode,nnode(1)=',mype,iv,ie,i,knode,nnode(1)
+            call My_endjob(ierr)
+          endif
+          if( iv == 0)  cycle
           do j=1, kdgof
             if( JRL(j, iv) == 0) cycle
+            if( iv > knode_i) then
+              write(*,*) 'Error!mype,iv,ie,knode,knode_i=',mype,iv,ie,knode,knode_i
+              call My_endjob(ierr)
+            endif
             ijn = JRL(j,iv)
-C           !找出每个自由度的相关自由度，并存放在NAI内。这里找出的是整体编号
+C           !找出每个自由度的关联自由度，并存放在NAI内。这里找出的是整体编号
             do i1=1, 8
               iw = node((IE-1)*nnode(1)+i1)
               do j1=1, kdgof
                 ijn1 = JRG(j1,iw)
+                if( mype ==0 .and. ie == 40 ) then
+                  print *,'===40=== iw, j1, ijn1=', iw,j1,ijn1
+                endif
                 if( ijn1 == 0 ) cycle
                 iexist = 0
                 do i2=1,na(ijn)
@@ -2914,15 +2931,13 @@ C           !找出每个自由度的相关自由度，并存放在NAI内。这�
           enddo
         enddo
       enddo
-c      write(*,*) 'mype, nnz = ', mype, nnz
-
 
       ! 整理非零元结构
       do i=N_update+1,2,-1
         na(i) = na(i-1)
       enddo
-      if( allocated(ia) ) deallocate(ia)
-      allocate(ia(nnz), val(nnz))
+      if( allocated(ia) ) deallocate(ia, am)
+      allocate(ia(nnz), am(nnz))
 
       nnz = 0
       na(1) = 0
@@ -2935,7 +2950,6 @@ c      write(*,*) 'mype, nnz = ', mype, nnz
         enddo
       enddo
       write(*,*) 'mype,nnz,na =', mype, nnz, na(N_update+1)
-c      if(mype.eq.1) write(*,*) 'ia(1:100)=', (ia(i),i=1,100)
       if( allocated(nai) ) deallocate(nai)
 
       return
