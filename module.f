@@ -79,37 +79,41 @@ C===========================================================C
            update(i) = update(i) - 1
          enddo
 
-         if(myid.eq.0) then
-           print *,'In crs2dmsr: myid,N_update,N_external=', myid,N,nextern
+c         if(myid.eq.0) then
+c           print *,'In crs2dmsr: myid,N_update,N_external=', myid,N,nextern
 c           print *,'update:', (update(i),i=1,N)
 c           print *,'na(1), na(N+1),ia(nnz) =', na(1), na(N+1),ia(nnz)
 c           print *,'a(1), a(N+1),a(nnz) =', a(1), a(N+1),a(nnz)
-         endif
+c         endif
 
          if( allocated(bindx) ) deallocate(bindx, val, external) 
          allocate(bindx(nnz+1),val(nnz+1),external(nextern))
 
-         if(myid .eq. 0) then
-           N_extern = 0
-           do i=1, nnz
-             col = ia(i)
-             if( col > N) then
-               ise = 1
-               do j=1, N_extern
-                 if( col == external(j)) then
-                   ise = 0
-                   cycle
-                 endif
-               enddo
-               if( ise == 1) then
-                 N_extern = N_extern + 1
-                 external(N_extern) = col
-               endif
+         N_extern = 0
+         do i=1, nnz
+           col = ia(i)
+           ise = 1
+           do j=1, N
+             if( col .eq. update(j)+1 ) then
+               ise = 0
+               exit
              endif
            enddo
-           print *,'myid, N_extern = ', myid, N_extern
-           print *,'external:', (external(j),j=1, N_extern)
-         endif
+           if ( ise == 0 ) cycle
+           ise = 1
+           do j=1, N_extern
+             if( col == external(j)) then
+               ise = 0
+               cycle
+             endif
+           enddo
+           if( ise == 1) then
+             N_extern = N_extern + 1
+             external(N_extern) = col
+           endif
+         enddo
+         print *,'In crs2DMSR:myid, N_extern = ', myid, N_extern
+c         print *,'external:', (external(j),j=1, N_extern)
 
          k = N+1
          bindx(1) = k
@@ -150,9 +154,9 @@ c           print *,'a(1), a(N+1),a(nnz) =', a(1), a(N+1),a(nnz)
                  if( ise1 == 1 ) then
                    N_extern = N_extern + 1
                    external(N_extern) = col -1
-                   if(myid .eq. 0) then
-                     print *,'N_extern, external=', N_extern, col-1
-                   endif
+c                   if(myid .eq. 0) then
+c                     print *,'N_extern, external=', N_extern, col-1
+c                   endif
                  endif
                endif
              endif
@@ -177,6 +181,8 @@ c           print *,'nextern = ', nextern
 c           print *,'bindx:', (bindx(i),i=1,nnz+1)
 c           print *,'val:', (val(i),i=1,nnz+1)
          endif
+
+         nextern = N_extern
          if ( allocated(b) ) deallocate(b, x)
          allocate(b(N), x(N+nextern))
 

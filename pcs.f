@@ -322,7 +322,6 @@ c        CALL NHMA(KK) ! 形成系数矩阵的存储结构
           R(I)=0.0
 70      CONTINUE
         IF(NERW.EQ.0 .AND. NERWDOWN.EQ.0) GOTO 999
-        goto 99
         IF(NERW.EQ.1) H1=HHY(KK-1)
         IF(NERW.EQ.1) H2=HHY(KK)
         IF(NERW.EQ.1) CALL WATER(H1,H2,NUH,IUH,-1)
@@ -561,13 +560,22 @@ c      implicit real*8(a-h,o-z)
 30    CONTINUE
 
       WRITE(*,*)'EQUATION SOLVING STARTING'
-      print *,'mype,N_update=', mype, N_update
+      print *,'----mype,N_update=', mype, N_update, JRL(1,151)
       call DCRS2DMSR(mype,N_update,N_external,
      +              na,ia,am,
      +              update,bindx,val,rhs,sol)
       print *,'after tran,mype, N_update,N_external=',mype,N_update,N_external
+
+      do i=1, N_update
+        rhs(i) = R(I)
+      enddo
+c      if( mype.eq.1) write(*,*) 'R:',(R(I),i=1,N_update)
 c      call SSORPCG
-c      call azsolv()
+      call azsolv(N_update,N_external,update,
+     +            bindx, val, rhs, sol)
+      
+c      if( myid.eq.1) write(*,*) 'sol:',(sol(I),i=1,N_update)
+
       WRITE(*,*)'EQUATION SOLVING FINISH'
       return
       
@@ -1126,22 +1134,32 @@ c        GAM=GAMT(K)
         IF(V1.GT.1.0E-5 .AND. III.EQ.6)
      +     CALL STIF6(K,JK,E,U,GAM,XYZ,III)
 
+c        if(k == 2 .and. mype == 0) then
+c          print *,'ske====ne_g, III, V1', ne_g, III, V1
+c          do i=1,24
+c            write(*,*) (ske(i,j),j=1,24)
+c          enddo
+c        endif
+
         ! 组装总刚和右端项
         DO 45 II=1,8               !单刚中的行节点
 c          IV=IPE(K,II)
-          IV=node((K-1)*8+II)
+          IV=node((K-1)*nnode(1)+II)
           IF(IV.EQ.0) GO TO 45 ! 只合成内部节点
           IQ1=(II-1)*3
           DO 40 IJ=1,3
 c            IU=JR(IJ,IV)          !自由度编号
             IU=JRL(IJ,IV)          !局部自由度编号
+            if( mype == 1 .and. IU==1) then
+              print *,'===K,IU,IJ,IV =',k,IU,IJ,IV
+            endif
             IP1=IQ1+IJ             !本自由度对应的单刚行号
             IF(IU.EQ.0) GOTO 40
 c            JV=MA(IU)
             JV = NA(IU)            !该行非零元在总刚中的起始位置
             DO 55 JI=1,8           !单刚中的列节点
 c              IW=IPE(K,JI)
-              IW=node((K-1)*8+JI)  !列节点编号
+              IW=node((K-1)*nnode(1)+JI)  !列节点编号
               IF(IW.EQ.0) GO TO 55
               IQ2=(JI-1)*3
               DO 50 JJ=1,3         !列节点自由度循环
@@ -2950,6 +2968,9 @@ C           !找出每个自由度的关联自由度，并存放在NAI内。这�
         enddo
       enddo
       write(*,*) 'mype,nnz,na =', mype, nnz, na(N_update+1)
+      do i=1, nnz
+        am(i) = 0.D0
+      enddo
       if( allocated(nai) ) deallocate(nai)
 
       return
