@@ -42,7 +42,7 @@ C============================================================C
 c          print *,'bindx =', (bindx(i),i=0,bindx(N_update)-1)
 c          print *,'val =', (val(i),i=0,bindx(N_update)-1)
 c          print *,'diag_bindx = ', (bindx(i),i=0,N_update)
-          print *,'diag:', (val(i),i=0,N_update-1)
+c          print *,'diag:', (val(i),i=0,N_update-1)
 c          print *,'maxa =', bindx(N_update)-bindx(0)
 c          print *,'col:'
 c          do i=0, N_update-1

@@ -580,7 +580,6 @@ c      if( myid.eq.1) write(*,*) 'sol:',(sol(I),i=1,N_update)
       return
       
       DO 40 I=1,N
-      
         IF(ABS(R(I)) .GT. 10.0)THEN
           WRITE(*,*)R(I)
           DO J=1,NP
@@ -1145,13 +1144,14 @@ c        endif
         DO 45 II=1,8               !单刚中的行节点
 c          IV=IPE(K,II)
           IV=node((K-1)*nnode(1)+II)
+          IVG = iN_lg(IV)
           IF(IV.EQ.0) GO TO 45 ! 只合成内部节点
           IQ1=(II-1)*3
           DO 40 IJ=1,3
 c            IU=JR(IJ,IV)          !自由度编号
             IU=JRL(IJ,IV)          !局部自由度编号
-            if( mype == 1 .and. IU==1) then
-              print *,'===K,IU,IJ,IV =',k,IU,IJ,IV
+            if( mype == 1 .and. IVG==29) then
+              print *,'===K,IU,IVG,IJ,IV =',k,IU,IVG,IJ,IV
             endif
             IP1=IQ1+IJ             !本自由度对应的单刚行号
             IF(IU.EQ.0) GOTO 40
@@ -1192,6 +1192,12 @@ c                    sk(k1)=sk(k1)+ske(ip1,ip2)
 45      CONTINUE
 
 20    CONTINUE
+
+      if( mype == 1) then
+        print *,'na(1),na(2) = ', na(1), na(2)
+        print *,'ia:',(ia(i),i=na(1)+1, na(2))
+        print *,'am:',(am(i),i=na(1)+1, na(2))
+      endif
 
       RETURN
       END
