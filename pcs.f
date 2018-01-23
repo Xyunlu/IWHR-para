@@ -1133,12 +1133,12 @@ c        GAM=GAMT(K)
         IF(V1.GT.1.0E-5 .AND. III.EQ.6)
      +     CALL STIF6(K,JK,E,U,GAM,XYZ,III)
 
-c        if(k == 2 .and. mype == 0) then
-c          print *,'ske====ne_g, III, V1', ne_g, III, V1
-c          do i=1,24
-c            write(*,*) (ske(i,j),j=1,24)
-c          enddo
-c        endif
+        if(k <= 4 .and. mype == 1) then
+          print *,'ske====ne_g, III, V1', ne_g, III, V1
+          do i=1,24
+            write(*,*) (ske(i,j),j=1,24)
+          enddo
+        endif
 
         ! 组装总刚和右端项
         DO 45 II=1,8               !单刚中的行节点
@@ -1194,9 +1194,13 @@ c                    sk(k1)=sk(k1)+ske(ip1,ip2)
 20    CONTINUE
 
       if( mype == 1) then
-        print *,'na(1),na(2) = ', na(1), na(2)
-        print *,'ia:',(ia(i),i=na(1)+1, na(2))
-        print *,'am:',(am(i),i=na(1)+1, na(2))
+        ichkrow = 2
+        na0 = na(ichkrow)
+        na1 = na(ichkrow+1)
+        print *,'na0,na1 = ', na0, na1
+        print *,'ia:',(ia(i),i=na0+1, na1)
+        print *,'am:',(am(i),i=na0+1, na1)
+        print *,'r:', r(ichrow)
       endif
 
       RETURN
