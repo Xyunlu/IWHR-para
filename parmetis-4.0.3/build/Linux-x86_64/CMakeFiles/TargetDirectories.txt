@@ -1,0 +1,6 @@
+/md3220i/home/supery/working/yang/sky/par/parmetis-4.0.3/build/Linux-x86_64/libmetis/CMakeFiles/metis.dir
+/md3220i/home/supery/working/yang/sky/par/parmetis-4.0.3/build/Linux-x86_64/programs/CMakeFiles/mtest.dir
+/md3220i/home/supery/working/yang/sky/par/parmetis-4.0.3/build/Linux-x86_64/libparmetis/CMakeFiles/parmetis.dir
+/md3220i/home/supery/working/yang/sky/par/parmetis-4.0.3/build/Linux-x86_64/programs/CMakeFiles/parmetis_prog.dir
+/md3220i/home/supery/working/yang/sky/par/parmetis-4.0.3/build/Linux-x86_64/programs/CMakeFiles/pometis.dir
+/md3220i/home/supery/working/yang/sky/par/parmetis-4.0.3/build/Linux-x86_64/programs/CMakeFiles/ptest.dir

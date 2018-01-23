@@ -1,0 +1,6 @@
+/md3220i/home/supery/working/yang/sky/par/parmetis/include/parmetis.h
+/md3220i/home/supery/working/yang/sky/par/parmetis/lib/libparmetis.a
+/md3220i/home/supery/working/yang/sky/par/parmetis/bin/ptest
+/md3220i/home/supery/working/yang/sky/par/parmetis/bin/mtest
+/md3220i/home/supery/working/yang/sky/par/parmetis/bin/parmetis
+/md3220i/home/supery/working/yang/sky/par/parmetis/bin/pometis
