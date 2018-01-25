@@ -560,42 +560,51 @@ c      implicit real*8(a-h,o-z)
 30    CONTINUE
 
       WRITE(*,*)'EQUATION SOLVING STARTING'
-      print *,'----mype,N_update=', mype, N_update, JRL(1,151)
       call DCRS2DMSR(mype,N_update,N_external,
      +              na,ia,am,
      +              update,bindx,val,rhs,sol)
-      print *,'after tran,mype, N_update,N_external=',mype,N_update,N_external
 
       do i=1, N_update
         rhs(i) = R(I)
       enddo
 c      if( mype.eq.1) write(*,*) 'R:',(R(I),i=1,N_update)
+c      if( mype == 1) then
+c        print *,'rhs:', (R(i),i=1,10)
+c      endif
 c      call SSORPCG
       call azsolv(N_update,N_external,update,
      +            bindx, val, rhs, sol)
       
-c      if( myid.eq.1) write(*,*) 'sol:',(sol(I),i=1,N_update)
-
+      do i=1,N_update
+        R(I) = sol(i)
+      enddo
+c      if( mype == 1) write(*,*) 'sol:',(sol(I),i=1,10)
       WRITE(*,*)'EQUATION SOLVING FINISH'
-      return
       
+C...  检查位移是否过大，输出过大的节点编号
       DO 40 I=1,N
         IF(ABS(R(I)) .GT. 10.0)THEN
-          WRITE(*,*)R(I)
-          DO J=1,NP
+          WRITE(*,*) R(I)
+c          DO J=1,NP
+          DO J=1,knode_i
             DO K=1,3
-              IF(JR(K,J).EQ.I)WRITE(*,*)J
+c              IF(JR(K,J) .EQ. I)WRITE(*,*)J
+              IF(JRL(K,J) .EQ. I)WRITE(*,*) iN_lg(j)
             ENDDO
           ENDDO
         ENDIF
-        IF(ABS(R(I)).GT.10.0)WRITE(*,*)'DEFORMATION IS HUGE'
-        IF(ABS(R(I)).GT.10.0) STOP   
+        IF(ABS(R(I)).GT.10.0) WRITE(*,*)'DEFORMATION IS HUGE'
+c        IF(ABS(R(I)).GT.10.0) STOP   
+        IF(ABS(R(I)).GT.10.0) call my_endjob(ierr)
 40    CONTINUE
       
+c      print *,'mype, knode_i=', mype, knode_i
       IF(IFO.EQ.5) GO TO 70
-      DO 65 I=1,NP
+c      DO 65 I=1,NP
+      DO 65 I=1,knode_i
         DO 60 J=1,3
-          IV=JR(J,I)
+c          IV=JR(J,I)
+          IV=JRL(J,I)
           IF(IV.GT.N) GO TO 65
           IF(IV.EQ.0) UVW(I,J)=0.0
           IF(IV.NE.0)THEN
@@ -604,8 +613,10 @@ c      if( myid.eq.1) write(*,*) 'sol:',(sol(I),i=1,N_update)
           ENDIF
 60      CONTINUE
 65    CONTINUE
-70    CALL STRESS(KK)
+
+70    CALL STRESS(KK)     ! 求应力
       WRITE(*,*)'STRESS END'
+      return
       ! 求应力时注意面板是否在施工期，应扣除施工期对面板应力和位移的影响
       IF(KK.LE.NUMBERSHIGONG)THEN ! 地基施工不计算位移
         DO 651 I=1,NP
@@ -1133,12 +1144,12 @@ c        GAM=GAMT(K)
         IF(V1.GT.1.0E-5 .AND. III.EQ.6)
      +     CALL STIF6(K,JK,E,U,GAM,XYZ,III)
 
-        if(k <= 4 .and. mype == 1) then
-          print *,'ske====ne_g, III, V1', ne_g, III, V1
-          do i=1,24
-            write(*,*) (ske(i,j),j=1,24)
-          enddo
-        endif
+c        if(k <= 4 .and. mype == 1) then
+c          print *,'ske====ne_g, III, V1', ne_g, III, V1
+c          do i=1,24
+c            write(*,*) (ske(i,j),j=1,24)
+c          enddo
+c        endif
 
         ! 组装总刚和右端项
         DO 45 II=1,8               !单刚中的行节点
@@ -1150,9 +1161,9 @@ c          IV=IPE(K,II)
           DO 40 IJ=1,3
 c            IU=JR(IJ,IV)          !自由度编号
             IU=JRL(IJ,IV)          !局部自由度编号
-            if( mype == 1 .and. IVG==29) then
-              print *,'===K,IU,IVG,IJ,IV =',k,IU,IVG,IJ,IV
-            endif
+c            if( mype == 1 .and. IVG==29) then
+c              print *,'===K,IU,IVG,IJ,IV =',k,IU,IVG,IJ,IV
+c            endif
             IP1=IQ1+IJ             !本自由度对应的单刚行号
             IF(IU.EQ.0) GOTO 40
 c            JV=MA(IU)
@@ -1193,15 +1204,15 @@ c                    sk(k1)=sk(k1)+ske(ip1,ip2)
 
 20    CONTINUE
 
-      if( mype == 1) then
-        ichkrow = 2
-        na0 = na(ichkrow)
-        na1 = na(ichkrow+1)
-        print *,'na0,na1 = ', na0, na1
-        print *,'ia:',(ia(i),i=na0+1, na1)
-        print *,'am:',(am(i),i=na0+1, na1)
-        print *,'r:', r(ichrow)
-      endif
+c      if( mype == 1) then
+c        ichkrow = 2
+c        na0 = na(ichkrow)
+c        na1 = na(ichkrow+1)
+c        print *,'na0,na1 = ', na0, na1
+c        print *,'ia:',(ia(i),i=na0+1, na1)
+c        print *,'am:',(am(i),i=na0+1, na1)
+c        print *,'r:', r(ichkrow)
+c      endif
 
       RETURN
       END
@@ -2386,6 +2397,8 @@ C     IMPLICIT DOUBLE PRECISION (A-H,O-Z)
 !     FUNCTION         计算单元的应力和应变
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE STRESS(KK)
+      use ComData
+      use FEMData
 c      implicit real*8(a-h,o-z)
       DIMENSION XYZ(3,8),RJX(3,3),Q(3,8)
       DIMENSION UVW(3,8),X(9),C(6),MM(4),BP(6,3)
@@ -2402,109 +2415,113 @@ c      implicit real*8(a-h,o-z)
       COMMON/B11/BI(4),CI(4),DI(4)
       COMMON /EJOINT/IJKL(990000),VML(990000)
       DATA  MM/1.0,-1.0,1.0,-1.0/
+
+      print *,'mype, NE, num =', mype, NE, mnode(1)
       DO 10 I=1,NE
       DO 10 J=1,6
-      STR(I,J)=0.0
-      EPG(I,J)=0.0
-10      CONTINUE
+        STR(I,J)=0.0
+        EPG(I,J)=0.0
+10    CONTINUE
+
       KE=II0(KK)
       DO 150 K=1,KE
-      NEE=K
-      DO 20 I=1,8
-      IV=IPE(K,I)
-      IF(IV.EQ.0) GO TO 20
-      DO 22 J=1,3   
-      XYZ(J,I)=COP(IV,J)
-22      CONTINUE
+        NEE=K
+        DO 20 I=1,8
+          IV=IPE(K,I)
+          IF(IV.EQ.0) GO TO 20
+          DO 22 J=1,3   
+            XYZ(J,I)=COP(IV,J)
+22        CONTINUE
 20      CONTINUE
-      III=IJKL(K)
-      V1=VML(K)
-      IF(V1.LT.1.0E-8) GO TO 100
-      NM=ME(K)
-      E=ET(K)
-      U=UT(K)
-      D1=E*(1.0-U)/((1.0+U)*(1.0-2.0*U))
-      D2=E*U/((1.0+U)*(1.0-2.0*U))
-      D3=E*0.5/(1.0+U)
-      DO 30 I=1,8
-      IV=IPE(K,I)
-      IF(IV.EQ.0) GO TO 30
-      DO 32 J=1,3
-      IW=JR(J,IV)
-      IF(IW.EQ.0) UVW(J,I)=0.0
-      IF(IW.NE.0) UVW(J,I)=R(IW)
-32      CONTINUE
+        III=IJKL(K)
+        V1=VML(K)
+        IF(V1.LT.1.0E-8) GO TO 100
+        NM=ME(K)
+        E=ET(K)
+        U=UT(K)
+        D1=E*(1.0-U)/((1.0+U)*(1.0-2.0*U))
+        D2=E*U/((1.0+U)*(1.0-2.0*U))
+        D3=E*0.5/(1.0+U)
+        DO 30 I=1,8
+          IV=IPE(K,I)
+          IF(IV.EQ.0) GO TO 30
+          DO 32 J=1,3
+            IW=JR(J,IV)
+            IF(IW.EQ.0) UVW(J,I)=0.0
+            IF(IW.NE.0) UVW(J,I)=R(IW)
+32        CONTINUE
 30      CONTINUE
-      IF(III.EQ.4) GO TO 200
-      T=0.0
-      IF(III.EQ.6) GO TO 36
-      R1=0.0
-      S=0.0
-      GO TO 45
+        IF(III.EQ.4) GO TO 200
+        T=0.0
+        IF(III.EQ.6) GO TO 36
+        R1=0.0
+        S=0.0
+        GO TO 45
 36      R1=0.3333333
-      S=R1
+        S=R1
 45      CALL RMSD(XYZ,Q,DET,R1,S,T,RJX,III)
-      DO 35 I=1,9
+        DO 35 I=1,9
 35      X(I)=0.0
-      DO 40 I=1,8
-      IV=IPE(K,I)
-      IF(IV.EQ.0) GO TO 40
-      X(1)=X(1)+Q(1,I)*UVW(1,I)
-      X(2)=X(2)+Q(2,I)*UVW(2,I)
-      X(3)=X(3)+Q(3,I)*UVW(3,I)
-      X(4)=X(4)+Q(1,I)*UVW(2,I)
-      X(5)=X(5)+Q(1,I)*UVW(3,I)
-      X(6)=X(6)+Q(2,I)*UVW(3,I)
-      X(7)=X(7)+Q(2,I)*UVW(1,I)
-      X(8)=X(8)+Q(3,I)*UVW(1,I)
-      X(9)=X(9)+Q(3,I)*UVW(2,I)
+        DO 40 I=1,8
+          IV=IPE(K,I)
+          IF(IV.EQ.0) GO TO 40
+          X(1)=X(1)+Q(1,I)*UVW(1,I)
+          X(2)=X(2)+Q(2,I)*UVW(2,I)
+          X(3)=X(3)+Q(3,I)*UVW(3,I)
+          X(4)=X(4)+Q(1,I)*UVW(2,I)
+          X(5)=X(5)+Q(1,I)*UVW(3,I)
+          X(6)=X(6)+Q(2,I)*UVW(3,I)
+          X(7)=X(7)+Q(2,I)*UVW(1,I)
+          X(8)=X(8)+Q(3,I)*UVW(1,I)
+          X(9)=X(9)+Q(3,I)*UVW(2,I)
 40      CONTINUE
-      C(1)=D1*X(1)+D2*(X(2)+X(3))
-      C(2)=D1*X(2)+D2*(X(3)+X(1))
-      C(3)=D1*X(3)+D2*(X(1)+X(2))
-      C(4)=D3*(X(7)+X(4))
-      C(5)=D3*(X(9)+X(6))
-      C(6)=D3*(X(8)+X(5))
-      DO 80 I=1,6
-      STR(K,I)=-C(I)
+        C(1)=D1*X(1)+D2*(X(2)+X(3))
+        C(2)=D1*X(2)+D2*(X(3)+X(1))
+        C(3)=D1*X(3)+D2*(X(1)+X(2))
+        C(4)=D3*(X(7)+X(4))
+        C(5)=D3*(X(9)+X(6))
+        C(6)=D3*(X(8)+X(5))
+        DO 80 I=1,6
+          STR(K,I)=-C(I)
 80      CONTINUE
-      DO 90 I=1,3
+        DO 90 I=1,3
 90      EPG(K,I)=-X(I)
-      EPG(K,4)=-(X(7)+X(4))
-      EPG(K,5)=-(X(9)+X(6))
-      EPG(K,6)=-(X(8)+X(5))
-      GO TO 100
-200   CALL FOUR(K,V)
-      DO 210 J=1,6
-210   X(J)=0.0
-      DO 220 I=1,3
-      DO 220 J=1,6
-220   BP(J,I)=0.0
-      DO 230 J=1,4
-      BP(1,1)=MM(J)*BI(J)
-      BP(2,2)=MM(J)*CI(J)
-      BP(3,3)=MM(J)*DI(J)
-      BP(4,2)=BP(1,1)
-      BP(6,3)=BP(1,1)
-      BP(4,1)=BP(2,2)
-      BP(5,3)=BP(2,2)
-      BP(5,2)=BP(3,3)
-      BP(6,1)=BP(3,3)
-      DO 230 L=1,6
-      DO 230 M=1,3
-      X(L)=X(L)+BP(L,M)*UVW(M,J)/V/6.0
-230   CONTINUE
-      C(1)=D1*X(1)+D2*(X(2)+X(3))
-      C(2)=D1*X(2)+D2*(X(3)+X(1))
-      C(3)=D1*X(3)+D2*(X(1)+X(2))
-      C(4)=D3*X(4)
-      C(5)=D3*X(5)
-      C(6)=D3*X(6)
-      DO 240 I=1,6
-      STR(K,I)=-C(I)
-240   EPG(K,I)=-X(I)
-100   CONTINUE
+        EPG(K,4)=-(X(7)+X(4))
+        EPG(K,5)=-(X(9)+X(6))
+        EPG(K,6)=-(X(8)+X(5))
+        GO TO 100
+200     CALL FOUR(K,V)
+        DO 210 J=1,6
+210     X(J)=0.0
+        DO 220 I=1,3
+        DO 220 J=1,6
+220     BP(J,I)=0.0
+        DO 230 J=1,4
+          BP(1,1)=MM(J)*BI(J)
+          BP(2,2)=MM(J)*CI(J)
+          BP(3,3)=MM(J)*DI(J)
+          BP(4,2)=BP(1,1)
+          BP(6,3)=BP(1,1)
+          BP(4,1)=BP(2,2)
+          BP(5,3)=BP(2,2)
+          BP(5,2)=BP(3,3)
+          BP(6,1)=BP(3,3)
+          DO 230 L=1,6
+            DO 230 M=1,3
+              X(L)=X(L)+BP(L,M)*UVW(M,J)/V/6.0
+230     CONTINUE
+        C(1)=D1*X(1)+D2*(X(2)+X(3))
+        C(2)=D1*X(2)+D2*(X(3)+X(1))
+        C(3)=D1*X(3)+D2*(X(1)+X(2))
+        C(4)=D3*X(4)
+        C(5)=D3*X(5)
+        C(6)=D3*X(6)
+        DO 240 I=1,6
+          STR(K,I)=-C(I)
+240       EPG(K,I)=-X(I)
+100     CONTINUE
 150   CONTINUE
+
       RETURN
       END
 
@@ -2789,7 +2806,7 @@ c      write(*,*) 'mype, N, Ns =', mype, N, Ns
       allocate(update_index(N), STAT = AllocateStatus)
       IF (AllocateStatus .NE. 0) STOP "* allocate update_index error *"
      
-      print *,'mype,knode,knode_i,NO=',mype,knode,knode_i,NO
+c      print *,'mype,knode,knode_i,NO=',mype,knode,knode_i,NO
       Nt = 0
       do i=1, NO
         do j=1, 3
@@ -2866,8 +2883,8 @@ c              endif
       enddo
       close(21)
 
-      write(*,*) mype,'--MR--N_update,N_external=',N_update,N_external
-      write(*,*) mype,'nnode(1) = ', nnode(1)
+c      write(*,*) mype,'--MR--N_update,N_external=',N_update,N_external
+c      write(*,*) mype,'nnode(1) = ', nnode(1)
 
 100   FORMAT('JRL=',4(4I4,2X))
 
@@ -2977,7 +2994,7 @@ C           !找出每个自由度的关联自由度，并存放在NAI内。这�
           ia(nnz) = nai((i-1)*maxbnd+j)
         enddo
       enddo
-      write(*,*) 'mype,nnz,na =', mype, nnz, na(N_update+1)
+c      write(*,*) 'mype,nnz,na =', mype, nnz, na(N_update+1)
       do i=1, nnz
         am(i) = 0.D0
       enddo

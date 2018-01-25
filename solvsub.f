@@ -120,11 +120,11 @@ C
        call AZ_solve(x, b, options, params, 0, bindx, 0, 0,
      $               0, val, data_org, status, proc_config)
 
-c       if(myid .eq. 1) write(*,*) 'x:',(x(i),i=0,N_update-1)
+c       if(myid .eq. 1) write(*,*) 'x:',(x(i),i=0,9)
 C
 c       call MPI_FINALIZE(ierror)
 C
-       stop
+       return
        end
 
 C*********************************************************************

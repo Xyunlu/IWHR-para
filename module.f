@@ -112,7 +112,7 @@ c         endif
              external(N_extern) = col
            endif
          enddo
-         print *,'In crs2DMSR:myid, N_extern = ', myid, N_extern
+c         print *,'In crs2DMSR:myid, N_extern = ', myid, N_extern
 c         print *,'external:', (external(j),j=1, N_extern)
 
          k = N+1
