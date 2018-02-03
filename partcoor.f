@@ -127,6 +127,7 @@ c
       endif
 
 c      write(*,*) Mype, ', knodei=', knodei, ', knode_t=', knode_t
+c      write(*,*) Mype, ', num_max=', num_max, ', num_t=', num_t
 
       allocate(nod_gid(knode_max))
       allocate(nod_id(knode_max))

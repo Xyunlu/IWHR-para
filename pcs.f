@@ -182,6 +182,7 @@ c      print *,'the ', iblk, ' processor open file...'
       CALL INPUT(GAMWA) ! GAMWA IS GRAVITY OF WATER 1.0
       ! ================================================= !
       WRITE(*,*) 'INPUT FINISH'
+      write(*,*) 'Mype, NJJ =', Mype, NJJ
 
       knode_t = NP                                 ! 节点总数
       maxknode_i = knode_t/nblk*2
@@ -236,6 +237,7 @@ c      mnodeg(2) = numq4
      +              mnodeg,nnodeg,node_glb,
      +              knode_i,knode_t)
       
+c      print *,mype,' partmesh ok...'
       kcoor = 3
       allocate(coorg(knode_t*kcoor), STAT = AllocateStatus)
       IF (AllocateStatus .NE. 0) 
@@ -249,11 +251,56 @@ c      mnodeg(2) = numq4
      +              mnodeg,nnodeg,node_glb,
      +              knode_t,coorg)
 
-      allocate(iN_lg(knode_i), STAT = AllocateStatus)
+      print *,'mype,knode,knode_t,knode_i =', knode, knode_t, knode_i
+      allocate(iN_lg(knode), STAT = AllocateStatus)
       IF (AllocateStatus .NE. 0) STOP "* Not enough memory for iN_lg *"
       do i=1, knode_i
         iN_lg(i) = nodg(i)
       enddo
+C     整理扩展节点的整体节点编号
+      write(ext,'(i5)') mype
+      filename='conn_' // trim(adjustl(ext))
+      open(21,file=filename,form='formatted',status='old')
+      read(21,*) neigh
+      do i=1, neigh
+        read(21,*) isend, nsend
+        allocate(neighs(nsend))
+        read(21,*) (neighs(j),j=1,nsend)
+        ntmp = nsend
+        write(*,*) 'mype, isend, ntmp_s=', mype, isend, ntmp
+        allocate(ipool(ntmp))
+        do j=1,nsend
+          inod = neighs(j)
+          if(inod .gt. knode_i .or. inod .le. 0) then
+            print *,'Error!! inod, knode=',inod, knode
+            call My_endjob(ierr)
+          endif
+          ipool(j) = iN_lg(inod)
+        enddo
+        call My_sendai(isend,mype,ipool,ntmp)
+        deallocate(neighs, ipool)
+c
+        read(21,*) irecv, nrecv
+        allocate(neighr(nrecv))
+        read(21,*) (neighr(j),j=1,nrecv)
+        ntmp = nrecv
+        allocate(ipool(ntmp))
+c        write(*,*) 'mype, irecv, ntmp_r=', mype, irecv, ntmp
+        call My_recvai(mype,irecv,ipool,ntmp)
+        do j=1, nrecv
+          inod = neighr(j)
+          if(inod .gt. knode .or. inod .lt. knode_i) then
+            print *,'Error!! inod, knode=',inod, knode
+            call My_endjob(ierr)
+          endif
+          if( j .gt. ntmp ) then
+            print *,'j, ntmp=',j, ntmp
+          endif
+          iN_lg(inod) = ipool(j)
+        enddo
+        deallocate(neighr, ipool)
+      enddo
+      close(21)
 c
 c      print *,mype,'==>,knode_t,knode_i,knode=', knode_t,knode_i,knode
 c      print *,mype,'==>,numc8,nuh,ndh,=', mnode(1),mnode(2),mnode(3)
@@ -275,19 +322,24 @@ c      DO 30 I=1,NP
       DO 30 J=1,3
 30    UVW(I,J)=0.0
       
+      ! 初始化 S0L,Q0L,STRZL,DZL
       num = mnode(1)
+      if ( allocated(S0L) ) deallocate(S0L, Q0L)
+      allocate( S0L(num), Q0L(num) )
+      if ( allocated(STRZL) ) deallocate(STRZL, DZL, EPGZL)
+      allocate( STRZL(num,6), DZL(num,3), EPGZL(num, 6) )
 c      DO 40 I=1,NE
       DO 40 I=1,num
       Q0(I)=0.0
-      S0(I)=0.0
+      S0L(I)=0.0
       DO 40 J=1,6
-      STRZ(I,J)=0.0
+      STRZL(I,J)=0.0
 40    CONTINUE
       
 c      DO 50 I=1,NE
       DO 50 I=1,Num
       DO 50 J=1,3
-50    DZ(I,J)=0.0
+50    DZL(I,J)=0.0
       
       ! ================================================= !
       ! 计算单元初始弹模和泊松比....
@@ -353,9 +405,9 @@ c        CALL NHMA(KK) ! 形成系数矩阵的存储结构
 999     CONTINUE
         ! ZL25  累加自重、分解、回代、中点增量
         CALL ZL25(5,KK) 
-        goto 99
         NET=0
         CALL ZL25(10,KK)
+        goto 99
         
         IF(KK.EQ.MBJ)THEN
           WRITE(53,6)((UVW(I,J)*100,J=1,3),I=1,NP)
@@ -529,7 +581,7 @@ C
       USE FEMData
       USE solvmodule
 c      implicit real*8(a-h,o-z)
-      COMMON /A13/ET(MAXN),UT(MAXN),GAMT(MAXN)
+c      COMMON /A13/ET(MAXN),UT(MAXN),GAMT(MAXN)
       COMMON /A4/N,NH,MX,JR(3,MAXN)
       COMMON /A3/NE,NP,NR,NERW,NERWDOWN
       COMMON /A12/RR(MAXN1)
@@ -547,8 +599,8 @@ c      implicit real*8(a-h,o-z)
       COMMON /A7/COP(MAXN,3),AE(11,40)
 
       CALL KRGAM(KK)    ! 计算刚度矩阵，形成总刚和右端荷载
-      WRITE(*,110)
-110   FORMAT(1X,'KRGAM END')
+      WRITE(*,110) mype
+110   FORMAT(1X,'KRGAM END', i3)
 
       IF(IFO.EQ.10) GO TO 20
       DO 10 I=1,N
@@ -560,6 +612,30 @@ c      implicit real*8(a-h,o-z)
 30    CONTINUE
 
       WRITE(*,*)'EQUATION SOLVING STARTING'
+      if( allocated(update) ) then
+        print *,'update allocated ...', mype
+      else
+        print *,'Error: update is not allocated...', mype
+      endif
+
+      write(ext,'(i5)') mype
+      filename='matr_' // trim(adjustl(ext)) // '.dat'
+      open(21,file=filename,form='formatted',status='unknown')
+      write(21,*) N_update, na(N_update+1)
+      write(21,*) (update(i),i=1,N_update)
+      write(21,*) (na(i),i=1, N_update+1)
+      do i=1, N_update
+        n0 = na(i)+1
+        n1 = na(i+1)
+        do j=n0,n1
+          write(21,'(2i6,E18.10)') update(i), ia(j), am(j)
+        enddo
+      enddo
+      do i=1, N_update
+        write(21,*) update(i), R(i)
+      enddo
+      close(21)
+
       call DCRS2DMSR(mype,N_update,N_external,
      +              na,ia,am,
      +              update,bindx,val,rhs,sol)
@@ -567,10 +643,11 @@ c      implicit real*8(a-h,o-z)
       do i=1, N_update
         rhs(i) = R(I)
       enddo
-c      if( mype.eq.1) write(*,*) 'R:',(R(I),i=1,N_update)
-c      if( mype == 1) then
-c        print *,'rhs:', (R(i),i=1,10)
-c      endif
+      if( mype == 1) then
+        do i=1, 10
+          write(*,*) 'rhs:',rhs(I)
+        enddo
+      endif
 c      call SSORPCG
       call azsolv(N_update,N_external,update,
      +            bindx, val, rhs, sol)
@@ -578,9 +655,81 @@ c      call SSORPCG
       do i=1,N_update
         R(I) = sol(i)
       enddo
-c      if( mype == 1) write(*,*) 'sol:',(sol(I),i=1,10)
+      do i=1, N
+        update(i) = update(i) + 1
+      enddo
       WRITE(*,*)'EQUATION SOLVING FINISH'
+      if( mype == 1) then
+        do i=1, 10
+          write(*,*) 'sol:',sol(I)
+        enddo
+      endif
       
+      if( allocated(disp)) deallocate(disp)
+      allocate(disp(3,knode))
+      do i=1,knode
+        do j=1,3
+          disp(j,i) = 0.D0
+        enddo
+      enddo
+
+      !整理位移到节点上
+      do i=1,knode_i
+        do j=1, 3
+          iv = JRL(j,i)
+          if( iv > 0 ) disp(j,i) = sol(iv)
+        enddo
+      enddo
+
+      !交换边界节点位移
+      write(ext,'(i5)') mype
+      filename='conn_' // trim(adjustl(ext))
+      open(21,file=filename,form='formatted',status='old')
+      read(21,*) neigh
+      do i=1, neigh
+        read(21,*) isend, nsend
+        allocate(neighs(nsend))
+        read(21,*) (neighs(j),j=1,nsend)
+        ntmp = nsend*kdgof
+c        write(*,*) 'mype, isend, ntmp_s=', mype, isend, ntmp
+        allocate(rpool(ntmp))
+        do j=1,nsend
+          inod = neighs(j)
+          if(inod .gt. knode_i .or. inod .le. 0) then
+            print *,'Error!! inod, knode=',inod, knode
+            call My_endjob(ierr)
+          endif
+          do k=1,kdgof
+            rpool((j-1)*kdgof+k) = disp(k,inod)
+          enddo
+        enddo
+        call My_sendar(isend,mype,rpool,ntmp)
+        deallocate(neighs, rpool)
+c
+        read(21,*) irecv, nrecv
+        allocate(neighr(nrecv))
+        read(21,*) (neighr(j),j=1,nrecv)
+        ntmp = nrecv*kdgof
+        allocate(rpool(ntmp))
+c        write(*,*) 'mype, irecv, ntmp_r=', mype, irecv, ntmp
+        call My_recvar(mype,irecv,rpool,ntmp)
+        do j=1, nrecv
+          inod = neighr(j)
+          if(inod .gt. knode .or. inod .lt. knode_i) then
+            print *,'Error!! inod, knode=',inod, knode
+            call My_endjob(ierr)
+          endif
+          do k=1,kdgof
+            if( (j-1)*kdgof+k .gt. ntmp ) then
+              print *,'(j-1)*kdgof+k, ntmp=',(j-1)*kdgof+k, ntmp
+            endif
+            disp(k,inod) = rpool((j-1)*kdgof+k)
+          enddo
+        enddo
+        deallocate(neighr, rpool)
+      enddo
+      close(21)
+
 C...  检查位移是否过大，输出过大的节点编号
       DO 40 I=1,N
         IF(ABS(R(I)) .GT. 10.0)THEN
@@ -589,7 +738,7 @@ c          DO J=1,NP
           DO J=1,knode_i
             DO K=1,3
 c              IF(JR(K,J) .EQ. I)WRITE(*,*)J
-              IF(JRL(K,J) .EQ. I)WRITE(*,*) iN_lg(j)
+              IF(JRL(K,J) .EQ. I) WRITE(*,*) iN_lg(j)
             ENDDO
           ENDDO
         ENDIF
@@ -601,73 +750,88 @@ c        IF(ABS(R(I)).GT.10.0) STOP
 c      print *,'mype, knode_i=', mype, knode_i
       IF(IFO.EQ.5) GO TO 70
 c      DO 65 I=1,NP
-      DO 65 I=1,knode_i
+      DO 65 I=1,knode
         DO 60 J=1,3
 c          IV=JR(J,I)
-          IV=JRL(J,I)
+c          IV=JRL(J,I)
           IF(IV.GT.N) GO TO 65
           IF(IV.EQ.0) UVW(I,J)=0.0
           IF(IV.NE.0)THEN
-            IF((NERWDOWN.EQ.1).OR.(NERW.EQ.1)) UVW(I,J)=UVW(I,J)+1.0*R(IV)
-            IF((NERWDOWN.EQ.0).AND.(NERW.EQ.0)) UVW(I,J)=UVW(I,J)+R(IV)
+c            IF((NERWDOWN.EQ.1).OR.(NERW.EQ.1)) UVW(I,J)=UVW(I,J)+1.0*R(IV)
+c            IF((NERWDOWN.EQ.0).AND.(NERW.EQ.0)) UVW(I,J)=UVW(I,J)+R(IV)
+            IF((NERWDOWN.EQ.1).OR.(NERW.EQ.1)) UVW(I,J)=UVW(I,J)+1.0*disp(j,i)
+            IF((NERWDOWN.EQ.0).AND.(NERW.EQ.0)) UVW(I,J)=UVW(I,J)+disp(j,i)
           ENDIF
 60      CONTINUE
 65    CONTINUE
 
 70    CALL STRESS(KK)     ! 求应力
       WRITE(*,*)'STRESS END'
-      return
+
       ! 求应力时注意面板是否在施工期，应扣除施工期对面板应力和位移的影响
+      Num = mnode(1)
+
       IF(KK.LE.NUMBERSHIGONG)THEN ! 地基施工不计算位移
-        DO 651 I=1,NP
+c        DO 651 I=1,NP
+        DO 651 I=1,knode
           DO 601 J=1,3
-            IV=JR(J,I)
+            IV=JRL(J,I)
             IF(IV.GT.N) GO TO 651
             IF(IV.EQ.0) UVW(I,J)=0.0
             IF(IV.NE.0) UVW(I,J)=0.0
 601       CONTINUE
 651     CONTINUE
-        DO 82 I=1,II0(KK)
-        DO 82 J=1,6
-          IF(IFO.EQ.10) STRZ(I,J)=STRZ(I,J)+STR(I,J)
-          IF(IFO.EQ.5)  STR(I,J)=STRZ(I,J)+STR(I,J)
-          IF(IFO.EQ.10) STR(I,J)=STRZ(I,J)
-          IF(IFO.EQ.10) EPGZ(I,J)=EPGZ(I,J)+EPG(I,J)
-          IF(IFO.EQ.5)  EPG(I,J)=EPGZ(I,J)+EPG(I,J)
-          IF(IFO.EQ.10) EPG(I,J)=EPGZ(I,J)
+c        DO 82 I=1,II0(KK)
+        DO 82 I=1,num
+          if( iE_lg(i) > II0(K) ) cycle
+          DO 82 J=1,6
+            IF(IFO.EQ.10) STRZL(I,J)=STRZL(I,J)+STRL(I,J)
+            IF(IFO.EQ.5)  STRL(I,J)=STRZL(I,J)+STRL(I,J)
+            IF(IFO.EQ.10) STRL(I,J)=STRZL(I,J)
+            IF(IFO.EQ.10) EPGZL(I,J)=EPGZL(I,J)+EPGL(I,J)
+            IF(IFO.EQ.5)  EPGL(I,J)=EPGZL(I,J)+EPGL(I,J)
+            IF(IFO.EQ.10) EPGL(I,J)=EPGZL(I,J)
 82      CONTINUE
-        DO 84 I=1,II0(KK)
-          IF(AE(1,ME(I)).GE.2.4)THEN !FANGSHENQIANG CONSTRUCTION
+c        DO 84 I=1,II0(KK)
+        DO 84 I=1,num
+          IF( iE_lg(I) > II0(K) ) cycle
+          imate = node(I*nnode(1))
+c          IF(AE(1,ME(I)).GE.2.4)THEN !FANGSHENQIANG CONSTRUCTION
+          IF(AE(1,imate) .GE. 2.4)THEN !FANGSHENQIANG CONSTRUCTION
             DO 85 J=1,6
-              IF(IFO.EQ.10) STRZ(I,J)=0.0
-              IF(IFO.EQ.5)  STR(I,J)=0.0
-              IF(IFO.EQ.10) STR(I,J)=0.0
-              IF(IFO.EQ.10) EPGZ(I,J)=0.0
-              IF(IFO.EQ.5)  EPG(I,J)=0.0
-              IF(IFO.EQ.10) EPG(I,J)=0.0
+              IF(IFO.EQ.10) STRZL(I,J)=0.0
+              IF(IFO.EQ.5)  STRL(I,J)=0.0
+              IF(IFO.EQ.10) STRL(I,J)=0.0
+              IF(IFO.EQ.10) EPGZL(I,J)=0.0
+              IF(IFO.EQ.5)  EPGL(I,J)=0.0
+              IF(IFO.EQ.10) EPGL(I,J)=0.0
 85          CONTINUE
           ENDIF
 84      CONTINUE
         ! 如果存在地基层，则该层仅计算应力，不将该层得到的位移计入最终位移
       ELSE !KK.NE.1
-        DO 80 I=1,II0(KK)
-        DO 80 J=1,6
-          IF(IFO.EQ.10) STRZ(I,J)=STRZ(I,J)+STR(I,J)
-          IF(IFO.EQ.5)  STR(I,J)=STRZ(I,J)+STR(I,J)
-          IF(IFO.EQ.10) STR(I,J)=STRZ(I,J)
-          IF(IFO.EQ.10) EPGZ(I,J)=EPGZ(I,J)+EPG(I,J)
-          IF(IFO.EQ.5)  EPG(I,J)=EPGZ(I,J)+EPG(I,J)
-          IF(IFO.EQ.10) EPG(I,J)=EPGZ(I,J)
+c        DO 80 I=1,II0(KK)
+        DO 80 I=1,num
+          if( iE_lg(I) > II0(K) ) cycle
+          DO 80 J=1,6
+            IF(IFO.EQ.10) STRZL(I,J)=STRZL(I,J)+STRL(I,J)
+            IF(IFO.EQ.5)  STRL(I,J)=STRZL(I,J)+STRL(I,J)
+            IF(IFO.EQ.10) STRL(I,J)=STRZL(I,J)
+            IF(IFO.EQ.10) EPGZL(I,J)=EPGZL(I,J)+EPGL(I,J)
+            IF(IFO.EQ.5)  EPGL(I,J)=EPGZL(I,J)+EPGL(I,J)
+            IF(IFO.EQ.10) EPGL(I,J)=EPGZL(I,J)
 80      CONTINUE
       ENDIF 
       
       CALL MAIN(1) !MAIN STRESS
-      WRITE(*,*)'MAINSTRESS FINISH' 
+      WRITE(*,*)'MAINSTRESS FINISH'
 !     CALL MAIN(0) !MAIN STRAIN AND SHEAR STRAIN
       CALL EVPK(IFO,KK)
-      IF(IFO.NE.10)GOTO 81
+      write(*,*) 'After EVPK, IFO =', IFO
+      IF(IFO .NE. 10)GOTO 81
       IF(KK.EQ.MBJ.OR.KK.EQ.NJJ) CALL MBYL(KK,0)
 !     IF(KK.EQ.MBJ.OR.KK.EQ.NJJ) CALL FAUVW(KK)
+      print *,'KK,MBJ,NJJ =', KK, MBJ, NJJ
       IF(KK.EQ.MBJ.OR.KK.EQ.NJJ) CALL OUTPUT(IFO,KK)
 !     IF(KK.GT.MBJ.AND.KK.LT.NJJ) CALL OUTPUT1(IFO,KK)
 81    CONTINUE
@@ -874,6 +1038,8 @@ c        V=VML(K)
 !     FUNCTION        
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE WHDUS(K,III,SS,UU)
+      USE ComData
+      USE FEMData
 c      implicit real*8(a-h,o-z)
       DIMENSION XYZ(3,8),U(3)
       DIMENSION BAL(3,3),SS(3),UVW(8,3),UU(3)
@@ -883,38 +1049,42 @@ c      implicit real*8(a-h,o-z)
       COMMON /A5/R(510000)
       COMMON /A4/N,NH,MX,JR(3,990000)
       COMMON /A13/ET(990000),UT(990000),GAMT(990000)
+
       DO 5 I=1,3
-      UU(I)=0.0
-      SS(I)=0.0
+        UU(I)=0.0
+        SS(I)=0.0
 5     CONTINUE
       DO 10 I=1,III
-      IL=IPE(K,I)
-      DO 10 J=1,3
-      XYZ(J,I)=COP(IL,J)
-      IV=JR(J,IL)
-      IF(IV.EQ.0) UVW(I,J)=0.0
-      IF(IV.NE.0) UVW(I,J)=R(IV)
-10      CONTINUE
+c        IL=IPE(K,I)
+        IL=node((K-1)*nnode(1)+I)
+        DO 10 J=1,3
+c          XYZ(J,I)=COP(IL,J)
+          XYZ(J,I)=COOR((IL-1)*3+J)
+          IV=JRL(J,IL)
+          IF(IV.EQ.0) UVW(I,J)=0.0
+          IF(IV.NE.0) UVW(I,J)=R(IV)
+10    CONTINUE
       IF(III.EQ.8) CALL WHD4FX(XYZ,BAL)
       IF(III.EQ.6) CALL CL3(XYZ,BAL)
       IM=III/2
       DO 80 J=1,3
-      U(J)=0.0
-      DO 80 I=1,IM
-      IC=I+IM
-      U(J)=U(J)+UVW(I,J)-UVW(IC,J) !compress IS POSITIVE
-80      CONTINUE
+        U(J)=0.0
+        DO 80 I=1,IM
+          IC=I+IM
+          U(J)=U(J)+UVW(I,J)-UVW(IC,J) !compress IS POSITIVE
+80    CONTINUE
       DO 90 I=1,3
-      U(I)=U(I)/FLOAT(IM)
-90      CONTINUE
+        U(I)=U(I)/FLOAT(IM)
+90    CONTINUE
       DO 95 I=1,3
-      UU(I)=0.0
-      DO 95 J=1,3
-      UU(I)=UU(I)+BAL(I,J)*U(J)
-95      CONTINUE
-      SS(1)=ET(K)*UU(1)
-      SS(2)=UT(K)*UU(2)
-      SS(3)=GAMT(K)*UU(3)
+        UU(I)=0.0
+        DO 95 J=1,3
+          UU(I)=UU(I)+BAL(I,J)*U(J)
+95    CONTINUE
+      SS(1)=ETL(K)*UU(1)
+      SS(2)=UTL(K)*UU(2)
+      SS(3)=GAMTL(K)*UU(3)
+
       RETURN
       END
 
@@ -922,19 +1092,23 @@ c      implicit real*8(a-h,o-z)
 !     FUNCTION      摩擦单元及缝单元的弹性常数 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE PK1(K,III,FF,DU)
+      USE ComData
+      USE FEMData
 c      implicit real*8(a-h,o-z)
       DIMENSION FF(3),DU(3),DU2(3),PK(3),F1(3)
       COMMON /NJX/NJJ,MBJ,HDMAX,hdam(100),hhy(100),ii0(100),HHY2(100)
       COMMON /STRM/SSS(990000,3)
-          COMMON /A7/COP(990000,3),AE(11,40)
+      COMMON /A7/COP(990000,3),AE(11,40)
       COMMON /A8/ME(990000)
       COMMON /A13/ET(990000),UT(990000),GAMT(990000)
-          COMMON /A16/DZ(990000,3)
+      COMMON /A16/DZ(990000,3)
+
       CALL WHDUS(K,III,FF,DU)
       DO 20 I=1,3
-      F1(I)=SSS(K,I)+FF(I)
-20      CONTINUE
-      MN=ME(K)
+        F1(I)=SSS(K,I)+FF(I)
+20    CONTINUE
+c      MN=ME(K)
+      MN=node(K*nnode(1))
       T=AE(1,MN)
       IF(ABS(T-0.1).GT.1.0E-5) GO TO 60 
       ! 以下对摩擦元处理
@@ -955,21 +1129,21 @@ c      implicit real*8(a-h,o-z)
       PK(1)=E0*T1*T1
       PK(2)=E0*T2*T2
       DO 34 I=1,2
-      IF(PK(I).LT.10.0) PK(I)=10.0
-34      CONTINUE
+        IF(PK(I).LT.10.0) PK(I)=10.0
+34    CONTINUE
       IF(PK(1).GT.G0) PK(1)=G0
       IF(PK(2).GT.G0) PK(2)=G0
       GO TO 120
 140   CONTINUE
-      PK(1)=ET(K)
-      PK(2)=UT(K)
-      PK(3)=GAMT(K)
+      PK(1)=ETL(K)
+      PK(2)=utl(K)
+      PK(3)=GAMTL(K)
       GO TO 120
 60    X=AE(2,MN)  ! 以下为对缝元的处理 DU(1)沉陷 DU(2)剪切 DU(3)拉伸和压缩
       Y=AE(3,MN)
       DO 65 I=1,3
-      DU2(I)=DZ(K,I)+DU(I)
-65      CONTINUE
+        DU2(I)=DZ(K,I)+DU(I)
+65    CONTINUE
       IF(ABS(X).LT.1.0E-5) GO TO 90
       IF(DU2(3).GT.0.0) GO TO 70
       A=17.5*0.5
@@ -978,12 +1152,12 @@ c      implicit real*8(a-h,o-z)
       IF(W.LE.0.0)W=0.1
       PK(3)=A*X/W/W
       GO TO 80
-70      A=65.0*0.5
+70    A=65.0*0.5
       B=41.0*0.5
       W=1.0-B*DU2(3)
       IF(W.LE.0.0)W=0.1
       PK(3)=A*X/W/W
-80      CONTINUE
+80    CONTINUE
       IF(DU2(3).GT.0.002) PK(3)=1000000.0
       IF(DU2(3).LE.-0.019) PK(3)=200.0
       A=22.5*0.5
@@ -994,7 +1168,7 @@ c      implicit real*8(a-h,o-z)
       U=ABS(DU2(2))
       IF(U.LT.0.0125) PK(2)=60.80*X*0.5
       IF(U.GE.0.0125) PK(2)=56.00*X*0.5
-90      IF(ABS(Y).LT.1.0E-5) GO TO 115
+90    IF(ABS(Y).LT.1.0E-5) GO TO 115
       IF(DU2(3).GT.0.0) GO TO 100
       U=ABS(DU2(3))
       IF(U.LE.0.0115) PK(3)=400.00*Y*0.5+PK(3)
@@ -1008,9 +1182,10 @@ c      implicit real*8(a-h,o-z)
       IF(PK(3).LE.20000)PK(3)=20000
 115   CONTINUE
 120   CONTINUE
-      ET(K)=PK(1)
-      UT(K)=PK(2)
-      GAMT(K)=PK(3)
+      ETL(K)=PK(1)
+      UTL(K)=PK(2)
+      GAMTL(K)=PK(3)
+
       RETURN
       END
 
@@ -1018,6 +1193,8 @@ c      implicit real*8(a-h,o-z)
 !     FUNCTION              各级计算单元的非线性弹性常数        !
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE EVPK(IFO,KK)
+      USE ComData
+      USE FEMData
 c      implicit real*8(a-h,o-z)
       DIMENSION XYZ(3,8),FF(3),S(990000),FI(990000),DU1(3)
       COMMON /A7/COP(990000,3),AE(11,40)
@@ -1031,36 +1208,54 @@ c      implicit real*8(a-h,o-z)
       COMMON /A8/ME(990000)
       COMMON /JLMX/MX
       COMMON /EJOINT/IJKL(990000),VML(990000)
+
+      !  ------ 20180126 -----
+
+      NUM = mnode(1)
+      if( allocated(DZL) ) deallocate(DZL)
+      allocate(DZL(num,3))
+
       KE=II0(KK)
-      DO 20 K=1,KE
-      DO 30 I=1,8
-      IV=IPE(K,I)
-      IF(IV.EQ.0) GO TO 30
-      XYZ(1:3,I)=COP(IV,1:3)
+c      DO 20 K=1,KE
+      DO 20 K=1,NUM
+        if( iE_lg(K) > KE ) cycle
+        DO 30 I=1,8
+c          IV=IPE(K,I)
+          IV=node((K-1)*nnode(1)+I)
+          IF(IV.EQ.0) GO TO 30
+c          XYZ(1:3,I)=COP(IV,1:3)
+          do j=1, 3
+            XYZ(j,I)=COOR((IV-1)*3+j)
+          enddo
 30      CONTINUE
-          III=IJKL(K)
-      V1=VML(K)
-      IM=ME(K)
-      IF(AE(1,IM).GT.0.3) CALL EBMOD(K,IFO,S1,FI1)
-!     S(K)=S1
-!     FI(K)=FI1 !FRICTION AGLE
-      IF(AE(1,IM).GT.0.2) GO TO 20
-      CALL PK1(K,III,FF,DU1)
-      IF(IFO.NE.10) GOTO 45
-      DO 40 I=1,3
-      IF(KK.GE.MBJ) SSS(K,I)=FF(I)+SSS(K,I)
-      IF(KK.LT.MBJ.AND.FF(3).GT.1.0) SSS(K,I)=FF(I)+SSS(K,I)
-!     IF(I.EQ.3)THEN
-!     IF(DU1(I).GT.0)DU1(I)=0.0
-!     ENDIF
-      DZ(K,I)=DZ(K,I)+DU1(I) ! 竣工期没有缝位移
-      JI=I+3
-      STRZ(K,JI)=DZ(K,I)*100 ! UNIT OF DISPLACEMENT OF JOINT IS CM
-40    CONTINUE
-45    CONTINUE
+        III=IJKL(K)
+c        V1=VML(K)
+c        IM=ME(K)
+        V1=VOL(K)
+        IM=node(K*nnode(1))
+        IF(AE(1,IM).GT.0.3) CALL EBMOD(K,IFO,S1,FI1)
+!        S(K)=S1
+!        FI(K)=FI1 !FRICTION AGLE
+        IF(AE(1,IM).GT.0.2) GO TO 20
+        CALL PK1(K,III,FF,DU1)
+        IF(IFO.NE.10) GOTO 45
+        DO 40 I=1,3
+          IF(KK.GE.MBJ) SSSL(K,I)=FF(I)+SSSL(K,I)
+          IF(KK.LT.MBJ.AND.FF(3).GT.1.0) SSSL(K,I)=FF(I)+SSSL(K,I)
+!          IF(I.EQ.3)THEN
+!          IF(DU1(I).GT.0)DU1(I)=0.0
+!          ENDIF
+          DZL(K,I)=DZL(K,I)+DU1(I) ! 竣工期没有缝位移
+          JI=I+3
+c          STRZ(K,JI)=DZL(K,I)*100 ! UNIT OF DISPLACEMENT OF JOINT IS CM
+          STRZL(K,JI)=DZL(K,I)*100 ! UNIT OF DISPLACEMENT OF JOINT IS CM
+40      CONTINUE
+45      CONTINUE
 20    CONTINUE
+
 150   FORMAT(' K,ET,VT,GAM,S=')
 160   FORMAT(2(I5,F10.1,F9.2,F10.1,F5.2,i3))
+
 110   RETURN
       END
 
@@ -1139,18 +1334,17 @@ c        GAM=GAMT(K)
      *     CALL WHDFK(E,U,GAM,XYZ)
 !     FUNCTION  (8结点)单元劲度阵,及自重荷载列阵  
         IF(V1.GT.1.0E-5 .AND. III.EQ.8) 
-     +     CALL STIF(K,JK,E,U,GAM,XYZ,III)
+     +     CALL STIF(K,JK,E,U,GAM,XYZ,III,ne_g)
 !     FUNCTION  6结点单元劲度矩阵
         IF(V1.GT.1.0E-5 .AND. III.EQ.6)
      +     CALL STIF6(K,JK,E,U,GAM,XYZ,III)
 
-c        if(k <= 4 .and. mype == 1) then
-c          print *,'ske====ne_g, III, V1', ne_g, III, V1
-c          do i=1,24
-c            write(*,*) (ske(i,j),j=1,24)
-c          enddo
-c        endif
-
+        if( ne_g .eq. 1 ) then
+          print *,'iE_lg:', iE_lg(k),',v1,III=',v1,III
+          do i=1,24
+            write(*,*) (ske(i,j),j=1,24)
+          ENDDO
+        endif
         ! 组装总刚和右端项
         DO 45 II=1,8               !单刚中的行节点
 c          IV=IPE(K,II)
@@ -1203,16 +1397,6 @@ c                    sk(k1)=sk(k1)+ske(ip1,ip2)
 45      CONTINUE
 
 20    CONTINUE
-
-c      if( mype == 1) then
-c        ichkrow = 2
-c        na0 = na(ichkrow)
-c        na1 = na(ichkrow+1)
-c        print *,'na0,na1 = ', na0, na1
-c        print *,'ia:',(ia(i),i=na0+1, na1)
-c        print *,'am:',(am(i),i=na0+1, na1)
-c        print *,'r:', r(ichkrow)
-c      endif
 
       RETURN
       END
@@ -1433,7 +1617,7 @@ c      IF(K.LE.JK) GO TO 60
       END
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!    SUBRUTINE FOUR    !!!!!!!!!!!!
-!     FUNCTION   
+!     FUNCTION  !已改 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE FOUR(K,V)
       USE ComData
@@ -1490,7 +1674,7 @@ c      V=VML(K)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!    SUBRUTINE STIF    !!!!!!!!!!!!!
 !     FUNCTION        单元劲度阵(8结点),及自重荷载列阵  
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      SUBROUTINE STIF(KA,JK,E,U,GAM,XYZ,III)
+      SUBROUTINE STIF(KA,JK,E,U,GAM,XYZ,III,NE)
 c      implicit real*8(a-h,o-z)
 C      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
       DIMENSION XYZ(3,8),RJX(3,3),Q(3,8),BV(24),D(9)
@@ -1502,6 +1686,11 @@ C      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
       D1=E*(1.0-U)/((1.0+U)*(1.0-2.0*U))
       D2=E*U/((1.0+U)*(1.0-2.0*U))
       D3=E*0.5/(1.0+U)
+
+      if(NE .eq. 1) THEN
+        write(*,*) 'In STIF:E,U=',E,U
+        write(*,*) 'D1,D2,D3=', D1,D2,D3
+      ENDIF
 
       DO 5 I=1,24
         RF(I)=0.0
@@ -1593,6 +1782,8 @@ C      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!    SUBRUTINE EBMODEL   !!!!!!!!!!!!
 !     FUNCTION                 E-B模型 !!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE EBMOD(K,IFO,S1,AF) 
+      USE ComData
+      USE FEMData
 c      implicit real*8(a-h,o-z)
       DIMENSION FF(3)
       COMMON /JLMX/MX
@@ -1604,16 +1795,23 @@ c      implicit real*8(a-h,o-z)
       COMMON /A13/E(990000),U(990000),GAMT(990000)
       COMMON /SQ/S0(990000),Q0(990000)
       COMMON /POSONGBI/PUMIN,PUMAX
-      NM=ME(K)
+c      NM=ME(K)
+
+      if( k.eq. 1) print *,'IN EBMOD,mype,iE_lg',mype,iE_lg(k)
+      NM = node(K*nnode(1))
+
       G0=AE(2,NM)
       CN=AE(3,NM)
       RF=AE(4,NM)
       G=AE(7,NM)
       F=AE(8,NM)
       DF=AE(9,NM)
+
       DO 10 I=1,3
-      FF(I)=SSS(K,I)
-10      CONTINUE
+        FF(I)=SSSL(K,I)
+10    CONTINUE
+      if ( K.eq.1 .and. mype.eq.1) print *,'FF=',(FF(i),i=1,3)
+
       IF(G0.GE.10000.AND.G0.LE.200000) GOTO 300
 !     IF(G0.GT.200000.AND.G0.LE.1000000) GOTO 200
       IF(G0.GT.200000) GOTO 200
@@ -1633,67 +1831,69 @@ c      implicit real*8(a-h,o-z)
       AMU=1.0-2.0*(FF(2)-FF(3))/(FF(1)-FF(2))
       ODE=(-AMU/1.7320508)
       CTA=ATAN(ODE)
-          CM=3.0*SIN(FI)*P+3.0*C*SIN(FI)
-          CP=1.7320508*COS(CTA)+SIN(CTA)*SIN(FI)
-          QF=CM/CP
+      CM=3.0*SIN(FI)*P+3.0*C*SIN(FI)
+      CP=1.7320508*COS(CTA)+SIN(CTA)*SIN(FI)
+      QF=CM/CP
       GO TO 60
-40      QF=(2.0*C*COS(FI)+2.0*P*SIN(FI))/(1-SIN(FI)) 
-60      S=Q/QF
-          IF(S.GE.1.0)S=1.0
-          IF(S.LE.0.001)S=0.001
+40    QF=(2.0*C*COS(FI)+2.0*P*SIN(FI))/(1-SIN(FI)) 
+60    S=Q/QF
+      IF(S.GE.1.0)S=1.0
+      IF(S.LE.0.001)S=0.001
 !     ET0=E0*(1-RF*S)*(1-RF*S)            
       IF(S.GE.0.95*S0(K)) THEN
-      S1=S
-      E0=G0*10.0*(PE)**CN
-      ET=E0*(1-RF*S)*(1-RF*S)
-          BT=G*10.0*(PE)**F
-          VT=0.5-ET/(6.0*BT)
-          IF(VT.LT.PUMIN) VT=PUMIN
-          IF(VT.GT.PUMAX) VT=PUMAX
-      GOTO 20
+        S1=S
+        E0=G0*10.0*(PE)**CN
+        ET=E0*(1-RF*S)*(1-RF*S)
+        BT=G*10.0*(PE)**F
+        VT=0.5-ET/(6.0*BT)
+        IF(VT.LT.PUMIN) VT=PUMIN
+        IF(VT.GT.PUMAX) VT=PUMAX
+        GOTO 20
       ENDIF
       IF(S.LE.0.75*S0(K)) GO TO 35
       S1=S
       E0=G0*10.0*(PE)**CN
       ET=E0*(1-RF*S)*(1-RF*S)
       EEUR=G0*20.0*(PE)**CN
-          ET=ET+(S0(k)-S)/(0.2*S0(k))*(EEUR-ET)
-          BT=G*10.0*(PE)**F
-          VT=0.5-ET/(6.0*BT)
-          IF(VT.LT.PUMIN) VT=PUMIN
-          IF(VT.GT.PUMAX) VT=PUMAX
+      ET=ET+(S0(k)-S)/(0.2*S0(k))*(EEUR-ET)
+      BT=G*10.0*(PE)**F
+      VT=0.5-ET/(6.0*BT)
+      IF(VT.LT.PUMIN) VT=PUMIN
+      IF(VT.GT.PUMAX) VT=PUMAX
       GO TO 20
       
-35      S1=S
-          EUR=AE(10,NM)
+35    S1=S
+      EUR=AE(10,NM)
       ET=EUR*10.0*(PE)**CN
-          VT=0.35
+      VT=0.35
       
-20      CONTINUE
+20    CONTINUE
       
       IF(IFO.EQ.5) GO TO 50
       IF(S.GT.S0(K))S0(K)=S
       IF(Q.GT.Q0(K))Q0(K)=Q
-50      CONTINUE
-      E(K)=ET
-      U(K)=VT
+50    CONTINUE
+      ETL(K)=ET
+      UTL(K)=VT
 100   CONTINUE
       GO TO 300
 
 200   IF(FF(3).LT.0.0) GO TO 210
-      E(K)=G0
-      IF(FF(1).GT.2500.0) E(K)=G0*0.5
+      ETL(K)=G0
+      IF(FF(1).GT.2500.0) ETL(K)=G0*0.5
       GO TO 300
-210   E(K)=640000.0
-      IF(FF(3).LT.-8.0) E(K)=560000.0
-      IF(FF(3).LT.-22.0) E(K)=460000.0
-      IF(FF(3).LT.-40.0) E(K)=230000.0
-      IF(FF(3).LT.-60.0) E(K)=100000.0
-      IF(FF(3).LT.-80.0) E(K)=50000.0
-      IF(FF(3).LT.-100.0) E(K)=10000.0
-      IF(FF(3).LT.-120.0) E(K)=4000.0
+210   ETL(K)=640000.0
+      IF(FF(3).LT.-8.0) ETL(K)=560000.0
+      IF(FF(3).LT.-22.0) ETL(K)=460000.0
+      IF(FF(3).LT.-40.0) ETL(K)=230000.0
+      IF(FF(3).LT.-60.0) ETL(K)=100000.0
+      IF(FF(3).LT.-80.0) ETL(K)=50000.0
+      IF(FF(3).LT.-100.0) ETL(K)=10000.0
+      IF(FF(3).LT.-120.0) ETL(K)=4000.0
       GOTO 300
 300   CONTINUE
+
+      if( K.eq.1 .and. mype.eq.1) print *,Mype,'IN EBMOD, E,U =', ETL(K),UTL(K)
       RETURN
       END
 
@@ -1779,8 +1979,8 @@ c      implicit real*8(a-h,o-z)
 !     FUNCTION            三角形无厚度单元的局部坐标系
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE CL3(XYZ,BAL)
-      USE ComData
-      USE FEMData
+c      USE ComData
+c      USE FEMData
 c      implicit real*8(a-h,o-z)
       DIMENSION XYZ(3,8),BAL(3,3)
 
@@ -2025,6 +2225,8 @@ C     IMPLICIT REAL*8(A-H,O-Z)
 !     FUNCTION                   计算面板应力
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE MBYL(KK,ID)
+      USE ComData
+      USE FEMData
 c      implicit real*8(a-h,o-z)
       DIMENSION BAL(3,3),BAK(3,3),BAD(3,3),BLA(3,3),SZ(6)
       COMMON /A15/STRZ(990000,6),EPGZ(990000,6)
@@ -2034,55 +2236,60 @@ c      implicit real*8(a-h,o-z)
       COMMON /ST/STR(990000,6),EPG(990000,6)
       COMMON /NJX/NJJ,MBJ,HDMAX,hdam(100),hhy(100),ii0(100),HHY2(100)
       COMMON /STRM/SSS(990000,3)
+
       IF(ID.EQ.0) WRITE(31,*) ' K     STR(n,/,z)   (unit:t/m/m)   NM='
       IF(ID.EQ.0) WRITE(31,*)'法向  顺坡向    坝轴向'
       CALL MBFXYL(BAL)
       DO 30 I=1,3
       DO 30 J=1,3
-      BLA(I,J)=BAL(J,I)
-30      CONTINUE
+        BLA(I,J)=BAL(J,I)
+30    CONTINUE
       DO 40 I=1,3
       DO 40 J=1,3
-      BAL(I,J)=BLA(I,J)
-40      CONTINUE
+        BAL(I,J)=BLA(I,J)
+40    CONTINUE
+
+      NUM = mnode(1)
       KE=II0(KK)
-      DO 60 K=1,KE
-      NM=ME(K)
-      GAM=AE(1,NM)
-      DF=AE(9,NM)
-      G=AE(7,NM)
-      IF(GAM.LT.2.35) GO TO 50
-      IF(G.GT.1.0E-5.OR.DF.GT.1.0E-5) GO TO 50
-      DO 10 J=1,6
-      IF(ID.EQ.0) SZ(J)=STRZ(K,J)
-      IF(ID.EQ.1) SZ(J)=STR(K,J)
+      DO 60 K=1,NUM
+        if( iE_lg(K) > KE ) cycle
+c        NM=ME(K)
+        NM=node(K*nnode(1))
+        GAM=AE(1,NM)
+        DF=AE(9,NM)
+        G=AE(7,NM)
+        IF(GAM.LT.2.35) GO TO 50
+        IF(G.GT.1.0E-5.OR.DF.GT.1.0E-5) GO TO 50
+        DO 10 J=1,6
+          IF(ID.EQ.0) SZ(J)=STRZL(K,J)
+          IF(ID.EQ.1) SZ(J)=STRL(K,J)
 10      CONTINUE
-      BAK(1,1)=SZ(1)
-      BAK(2,2)=SZ(2)
-      BAK(3,3)=SZ(3)
-      BAK(1,2)=SZ(4)
-      BAK(2,3)=SZ(5)
-      BAK(1,3)=SZ(6)
-      BAK(2,1)=SZ(4)
-      BAK(3,2)=SZ(5)
-      BAK(3,1)=SZ(6)
-      CALL CH29MB(BAL,BAK,BAD)
-      IF(ID.EQ.0) WRITE(31,100) K,SZ(1:6),ME(K)
-      IF(ID.EQ.0) WRITE(31,100) K,(BAD(I,I),I=1,3),(SSS(K,J),J=1,3),
-     *ME(K)
-      sss(k,1)=BAD(1,1)
-      sss(k,2)=BAD(2,2)
-      sss(k,3)=BAD(3,3)
-      
+        BAK(1,1)=SZ(1)
+        BAK(2,2)=SZ(2)
+        BAK(3,3)=SZ(3)
+        BAK(1,2)=SZ(4)
+        BAK(2,3)=SZ(5)
+        BAK(1,3)=SZ(6)
+        BAK(2,1)=SZ(4)
+        BAK(3,2)=SZ(5)
+        BAK(3,1)=SZ(6)
+        CALL CH29MB(BAL,BAK,BAD)
+        IF(ID.EQ.0) WRITE(31,100) iE_lg(K),SZ(1:6),ME(K)
+        IF(ID.EQ.0) WRITE(31,100) iE_lg(K),(BAD(I,I),I=1,3),(SSSL(K,J),J=1,3), ME(K)
+        sssl(k,1)=BAD(1,1)
+        sssl(k,2)=BAD(2,2)
+        sssl(k,3)=BAD(3,3)
+
 50      CONTINUE
-      IF(ID.EQ.0) GO TO 60
-      STR(K,1)=BAD(1,1)
-      STR(K,2)=BAD(2,2)
-      STR(K,3)=BAD(3,3)
-      STR(K,4)=BAD(1,2)
-      STR(K,5)=BAD(2,3)
-      STR(K,6)=BAD(1,3)
-60      CONTINUE
+        IF(ID.EQ.0) GO TO 60
+        STRL(K,1)=BAD(1,1)
+        STRL(K,2)=BAD(2,2)
+        STRL(K,3)=BAD(3,3)
+        STRL(K,4)=BAD(1,2)
+        STRL(K,5)=BAD(2,3)
+        STRL(K,6)=BAD(1,3)
+60    CONTINUE
+
 100   FORMAT(I6,6f10.3,I6)
 
       RETURN
@@ -2095,40 +2302,44 @@ c      implicit real*8(a-h,o-z)
 c      implicit real*8(a-h,o-z)
       DIMENSION BAL(3,3)
       COMMON /FA/AN,HDZ
+
       DO 10 I=1,3
       DO 10 J=1,3
-      BAL(I,J)=0.0
-10      CONTINUE
+        BAL(I,J)=0.0
+10    CONTINUE
       BAL(3,3)=1.0
       T=SQRT(AN*AN+1.0)
       BAL(1,1)=1.0/T
       BAL(1,2)=-AN/T
       BAL(2,1)=AN/T
       BAL(2,2)=1.0/T
+
       RETURN
       END
       
       SUBROUTINE  CH29MB(BAL,BAK,BAD)
 c      implicit real*8(a-h,o-z)
       DIMENSION BAL(3,3),BLA(3,3),BAD(3,3),BAK(3,3),BAC(3,3)
+
       DO 10 I=1,3
       DO 10 J=1,3
-      BLA(I,J)=BAL(J,I)
+        BLA(I,J)=BAL(J,I)
 10    CONTINUE
       DO 30 I=1,3
       DO 30 J=1,3
-      BAC(I,J)=0.0
-      DO 35 II=1,3
-      BAC(I,J)=BAC(I,J)+BLA(I,II)*BAK(II,J)
-35    CONTINUE
+        BAC(I,J)=0.0
+        DO 35 II=1,3
+          BAC(I,J)=BAC(I,J)+BLA(I,II)*BAK(II,J)
+35      CONTINUE
 30    CONTINUE
       DO 40 I=1,3
       DO 40 J=1,3
-      BAD(I,J)=0.0
-      DO 42 II=1,3
-      BAD(I,J)=BAD(I,J)+BAC(I,II)*BAL(II,J)
-42    CONTINUE
+        BAD(I,J)=0.0
+        DO 42 II=1,3
+          BAD(I,J)=BAD(I,J)+BAC(I,II)*BAL(II,J)
+42      CONTINUE
 40    CONTINUE
+
       RETURN
       END
 
@@ -2275,6 +2486,8 @@ c      implicit real*8(a-h,o-z)
 !     FUNCTION            输出计算结果
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE OUTPUT(IFO,KK)
+      USE ComData
+      USE FEMData
 c      implicit real*8(a-h,o-z)
 C     IMPLICIT DOUBLE PRECISION (A-H,O-Z)
       DIMENSION UVW(990000,3),INP(990000),C1(3),C2(3),L1(3),L2(3)
@@ -2287,33 +2500,38 @@ C     IMPLICIT DOUBLE PRECISION (A-H,O-Z)
       COMMON /A4/N,NH,MX,JR(3,990000)
       COMMON /NJX/NJJ,MBJ,HDMAX,hdam(100),hhy(100),ii0(100),HHY2(100)
       COMMON /A14/UVW1(990000,3)
+
+      write(*,*) 'In OUTPUT, IFO=', Mype, IFO
       IF(IFO.EQ.5) GO TO 50
       DO 705 J=1,3
-      C1(J)=0.0
-      C2(J)=0.0
+        C1(J)=0.0
+        C2(J)=0.0
 705   CONTINUE
-      DO 710 I=1,NP
+c      DO 710 I=1,NP
+      DO 710 I=1,knode
       DO 710 J=1,3
-      IF(UVW1(I,J).GT.C1(J)) L1(J)=I
-      IF(UVW1(I,J).GT.C1(J)) C1(J)=UVW1(I,J)
-      IF(UVW1(I,J).LT.C2(J)) L2(J)=I
-      IF(UVW1(I,J).LT.C2(J)) C2(J)=UVW1(I,J)
+        IF(UVW1(I,J).GT.C1(J)) L1(J)=I
+        IF(UVW1(I,J).GT.C1(J)) C1(J)=UVW1(I,J)
+        IF(UVW1(I,J).LT.C2(J)) L2(J)=I
+        IF(UVW1(I,J).LT.C2(J)) C2(J)=UVW1(I,J)
 710   CONTINUE
       WRITE(16,*) ' NP, UVWMAX,UVWMIN (unit:  m)'
       WRITE(16,563) (L1(I),C1(I),I=1,3)
       WRITE(16,563) (L2(I),C2(I),I=1,3)
 563   FORMAT(3(I8,F13.3))
+
       IK=0
-      DO 240 I=1,NP
-      DO 16 J=1,3
-      IF(ABS(UVW1(I,J)).GE.0.0) GO TO 230 
-16    CONTINUE
-      GO TO 240
-230   CONTINUE
-      IK=IK+1
-      INP(IK)=I
-      DO 10 J=1,3
-      UVW(IK,J)=UVW1(I,J)*100.0
+c      DO 240 I=1,NP
+      DO 240 I=1,knode
+        DO 16 J=1,3
+          IF(ABS(UVW1(I,J)).GE.0.0) GO TO 230 
+16      CONTINUE
+        GO TO 240
+230     CONTINUE
+        IK=IK+1
+        INP(IK)=I
+        DO 10 J=1,3
+          UVW(IK,J)=UVW1(I,J)*100.0
 10      CONTINUE
 240   CONTINUE
       WRITE(16,90)
@@ -2324,12 +2542,13 @@ C     IMPLICIT DOUBLE PRECISION (A-H,O-Z)
 80    FORMAT(1X,'  K      STR(K,6)         SSS(K,3) (unit: t/m/m)')
       KE=II0(KK)
       DO 30 K=1,KE
-      MN=ME(K)
-      T=AE(1,MN)
-      WRITE(16,110) K,(STRZ(K,I),I=1,6),(SSS(K,J),J=1,3)
-30      CONTINUE
+        MN=ME(K)
+        T=AE(1,MN)
+        WRITE(16,110) K,(STRZ(K,I),I=1,6),(SSS(K,J),J=1,3)
+30    CONTINUE
 110   FORMAT(1X,I6,6F15.2,3F15.2)
 50    CONTINUE
+
       RETURN
       END
 
@@ -2416,40 +2635,69 @@ c      implicit real*8(a-h,o-z)
       COMMON /EJOINT/IJKL(990000),VML(990000)
       DATA  MM/1.0,-1.0,1.0,-1.0/
 
-      print *,'mype, NE, num =', mype, NE, mnode(1)
-      DO 10 I=1,NE
+      print *,'IN STRESS, mype, NE, num =', mype, NE, mnode(1)
+
+      num = mnode(1)
+      !初始化单元应力STRL和EPGL
+      if( allocated(strl) ) deallocate(strl, epgl)
+      allocate(strl(num,6), epgl(num,6))
+
+c      DO 10 I=1,NE
+      DO 10 I=1,NUM
       DO 10 J=1,6
-        STR(I,J)=0.0
-        EPG(I,J)=0.0
+        STRL(I,J)=0.0
+        EPGL(I,J)=0.0
 10    CONTINUE
 
       KE=II0(KK)
-      DO 150 K=1,KE
-        NEE=K
+c      DO 150 K=1,KE
+      DO 150 K=1,num
+        if( iE_lg(K) .gt. KE) goto 150
+        NEE=K           !单元编号
         DO 20 I=1,8
-          IV=IPE(K,I)
+c          IV=IPE(K,I)
+          IV=node((k-1)*nnode(1)+I)
           IF(IV.EQ.0) GO TO 20
           DO 22 J=1,3   
-            XYZ(J,I)=COP(IV,J)
+c            XYZ(J,I)=COP(IV,J)
+            XYZ(J,I)=COOR((IV-1)*3+J)
 22        CONTINUE
 20      CONTINUE
-        III=IJKL(K)
-        V1=VML(K)
+        III=IJKL(K)     !单元有效节点个数
+c        V1=VML(K)
+        V1=VOL(K)       !单元体积
         IF(V1.LT.1.0E-8) GO TO 100
-        NM=ME(K)
-        E=ET(K)
-        U=UT(K)
+c        NM=ME(K)
+        NM=node(K*nnode(1))       !单元材料编号
+        E=ETL(K)
+        U=UTL(K)
         D1=E*(1.0-U)/((1.0+U)*(1.0-2.0*U))
         D2=E*U/((1.0+U)*(1.0-2.0*U))
         D3=E*0.5/(1.0+U)
+        if( mype.eq.1 .and. K.eq.1) then
+          print *,'IN STRESS,E,U,D1,D2,D3=', E,U,D1,D2,D3
+        ENDIF
         DO 30 I=1,8
-          IV=IPE(K,I)
+c          IV=IPE(K,I)
+          IV=node((K-1)*nnode(1)+I)
           IF(IV.EQ.0) GO TO 30
+          IF(IV.gt.knode .or. IV.lt.0 ) then
+            write(*,*) 'Error! IV, knode=', IV, knode
+            call my_endjob(ierr)
+          ENDIF
           DO 32 J=1,3
-            IW=JR(J,IV)
+c            IW=JR(J,IV)
+            IW=JRL(J,IV)
             IF(IW.EQ.0) UVW(J,I)=0.0
-            IF(IW.NE.0) UVW(J,I)=R(IW)
+c            IF(IW.NE.0) UVW(J,I)=R(IW)
+            IF(IW.NE.0) UVW(J,I)=disp(j,iv)
+            if( mype.eq.1 .and. k.eq.1) then
+              write(*,'(a,10i6)') 'i,iv,ivg,j,iw,iwg =',i,iv,iN_lg(iv),j,iw,JRG(j,iv)
+            endif
 32        CONTINUE
+          if( mype.eq.1 .and. k.eq.1 ) then
+            print *,'IN STRESS, i, uvw=', i, (UVW(J,I),j=1,3)
+          endif
 30      CONTINUE
         IF(III.EQ.4) GO TO 200
         T=0.0
@@ -2463,7 +2711,8 @@ c      implicit real*8(a-h,o-z)
         DO 35 I=1,9
 35      X(I)=0.0
         DO 40 I=1,8
-          IV=IPE(K,I)
+c          IV=IPE(K,I)
+          IV=node((K-1)*nnode(1)+I)
           IF(IV.EQ.0) GO TO 40
           X(1)=X(1)+Q(1,I)*UVW(1,I)
           X(2)=X(2)+Q(2,I)*UVW(2,I)
@@ -2482,13 +2731,13 @@ c      implicit real*8(a-h,o-z)
         C(5)=D3*(X(9)+X(6))
         C(6)=D3*(X(8)+X(5))
         DO 80 I=1,6
-          STR(K,I)=-C(I)
+          STRL(K,I)=-C(I)
 80      CONTINUE
         DO 90 I=1,3
-90      EPG(K,I)=-X(I)
-        EPG(K,4)=-(X(7)+X(4))
-        EPG(K,5)=-(X(9)+X(6))
-        EPG(K,6)=-(X(8)+X(5))
+90      EPGL(K,I)=-X(I)
+        EPGL(K,4)=-(X(7)+X(4))
+        EPGL(K,5)=-(X(9)+X(6))
+        EPGL(K,6)=-(X(8)+X(5))
         GO TO 100
 200     CALL FOUR(K,V)
         DO 210 J=1,6
@@ -2517,10 +2766,15 @@ c      implicit real*8(a-h,o-z)
         C(5)=D3*X(5)
         C(6)=D3*X(6)
         DO 240 I=1,6
-          STR(K,I)=-C(I)
-240       EPG(K,I)=-X(I)
+          STRL(K,I)=-C(I)
+240       EPGL(K,I)=-X(I)
 100     CONTINUE
 150   CONTINUE
+
+      if( mype.eq.1 ) then
+      print *,'In STRESS, STRL=',(STRL(1,i),i=1,6)
+      print *,'In STRESS, EPGL=',(EPGL(1,i),i=1,6)
+      endif
 
       RETURN
       END
@@ -2529,6 +2783,8 @@ c      implicit real*8(a-h,o-z)
 !     FUNCTION      计算主应力或主应变   0－应变   1－应力
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE MAIN(IM)
+      USE ComData
+      USE FEMData
 c      implicit real*8(a-h,o-z)
       DIMENSION XYZ(3,8),SW(6),PS(3)
       COMMON /ST/STR(990000,6),EPG(990000,6)
@@ -2539,76 +2795,90 @@ c      implicit real*8(a-h,o-z)
       COMMON /D13/GMV(990000)
       COMMON /EJOINT/IJKL(990000),VML(990000)
       
-      DO 100 K=1,NE
-      ION=0
-      III=0
-      DO 20 I=1,8
-      IV=IPE(K,I)
-      IF(IV.EQ.0) GO TO 20
-      DO 10 J=1,3
-10      XYZ(J,I)=COP(IV,J)
-      III=III+1
+      NUM = mnode(1)
+      if( allocated(SSSL)) deallocate(SSSL,GMVL)
+      allocate(SSSL(num,3), GMVL(num))
+
+c      DO 100 K=1,NE
+      DO 100 K=1,NUM         !单元循环
+        ION=0
+        III=0
+        DO 20 I=1,8
+c          IV=IPE(K,I)
+          IV=node((K-1)*nnode(1) + I)
+          IF(IV.EQ.0) GO TO 20
+          DO 10 J=1,3
+c10        XYZ(J,I)=COP(IV,J)
+10        XYZ(J,I)=COOR((IV-1)*3+J)
+          III=III+1
 20      CONTINUE
-      V=VML(K)
-      IF(ABS(V).LE.1.0E-5) GO TO 100
-      DO 30 I=1,3
-      PS(I)=0.0
+c        V=VML(K)
+        V=VOL(K)
+        IF(ABS(V).LE.1.0E-5) GO TO 100
+        DO 30 I=1,3
+          PS(I)=0.0
 30      CONTINUE
-      IF(IM.EQ.1) GO TO 60
-      DO 40 I=1,3
-40      SW(I)=EPG(K,I)*1.0E6
-      DO 50 I=4,6
-50      SW(I)=EPG(K,I)*0.5*1.0E6
-      GO TO 80
-60        DO 70 I=1,6
-        SW(I)=STR(K,I)
-      IF(SW(I).GT.1.0E5) ION=1
+        IF(IM.EQ.1) GO TO 60
+        DO 40 I=1,3
+c40      SW(I)=EPG(K,I)*1.0E6
+40      SW(I)=EPGL(K,I)*1.0E6
+        DO 50 I=4,6
+c50      SW(I)=EPG(K,I)*0.5*1.0E6
+50      SW(I)=EPGL(K,I)*0.5*1.0E6
+        GO TO 80
+60      DO 70 I=1,6
+c          SW(I)=STR(K,I)
+          SW(I)=STRL(K,I)
+          IF(SW(I).GT.1.0E5) ION=1
 70      CONTINUE
-80       B=-SW(1)-SW(2)-SW(3)
-         C=SW(1)*SW(2)+SW(3)*SW(2)+SW(1)*SW(3)-SW(4)*SW(4)-SW(5)*SW(5)
-     #      -SW(6)*SW(6)
-         D=SW(1)*SW(5)*SW(5)+SW(2)*SW(6)*SW(6)+SW(3)*SW(4)*SW(4)
-     #     -2.0*SW(4)*SW(5)*SW(6)-SW(1)*SW(2)*SW(3)
-      P=C-B*B/3.0
-      Q=2.0*B*B*B/27.0-B*C/3.0+D
-      R=0.25*Q*Q+P*P*P/27.0
-      IF(ABS(R).GT.0.5E-11) GO TO 110
-      FACE=1.0
-      IF(Q.LT.0.0) FACE=-1.0
-      Y=(ABS(Q)*0.5)**(1.0/3.0)
-      Y=Y*FACE
-      PS(1)=2.0*Y-B/3.0
-      PS(2)=-Y-B/3.0
-      PS(3)=PS(2)
-      GO TO 120
-110   S=SQRT(-P/3.0)
-      T=-0.5*Q/S/S/S
-      IF(ABS(T).GT.1.0) T=SIGN(1.0,-Q)
-      T=1.5707963267949-ASIN(T)
-      Y=2.0*S*COS(T/3.0)
-      PS(1)=Y-B/3.0
-      Y=2.0*S*COS((T+6.2831853071796)/3.0)
-      PS(2)=Y-B/3.0
-      Y=2.0*S*COS((T+2.0*6.2831853071796)/3.0)
-      PS(3)=Y-B/3.0
-      IF(PS(3).LT.PS(2)) GO TO 120
-      SIII=PS(2)
-      PS(2)=PS(3)
-      PS(3)=SIII
-      IF(PS(3).LT.PS(1)) GO TO 120
-      SII=PS(1)
-      PS(1)=PS(3)
-      PS(3)=SII
-120   CONTINUE
-      IF(IM.NE.1) GO TO 150
-      DO 140 I=1,3
-      SSS(K,I)=PS(I)
-140   CONTINUE
-      GO TO 100
-150   GMV(K)=ABS(PS(1)-PS(3))*1.0E-6
+80      B=-SW(1)-SW(2)-SW(3)
+        C=SW(1)*SW(2)+SW(3)*SW(2)+SW(1)*SW(3)-SW(4)*SW(4)-SW(5)*SW(5)
+     #     -SW(6)*SW(6)
+        D=SW(1)*SW(5)*SW(5)+SW(2)*SW(6)*SW(6)+SW(3)*SW(4)*SW(4)
+     #    -2.0*SW(4)*SW(5)*SW(6)-SW(1)*SW(2)*SW(3)
+        P=C-B*B/3.0
+        Q=2.0*B*B*B/27.0-B*C/3.0+D
+        R=0.25*Q*Q+P*P*P/27.0
+        IF(ABS(R).GT.0.5E-11) GO TO 110
+        FACE=1.0
+        IF(Q.LT.0.0) FACE=-1.0
+        Y=(ABS(Q)*0.5)**(1.0/3.0)
+        Y=Y*FACE
+        PS(1)=2.0*Y-B/3.0
+        PS(2)=-Y-B/3.0
+        PS(3)=PS(2)
+        GO TO 120
+110     S=SQRT(-P/3.0)
+        T=-0.5*Q/S/S/S
+        IF(ABS(T).GT.1.0) T=SIGN(1.0,-Q)
+        T=1.5707963267949-ASIN(T)
+        Y=2.0*S*COS(T/3.0)
+        PS(1)=Y-B/3.0
+        Y=2.0*S*COS((T+6.2831853071796)/3.0)
+        PS(2)=Y-B/3.0
+        Y=2.0*S*COS((T+2.0*6.2831853071796)/3.0)
+        PS(3)=Y-B/3.0
+        IF(PS(3).LT.PS(2)) GO TO 120
+        SIII=PS(2)
+        PS(2)=PS(3)
+        PS(3)=SIII
+        IF(PS(3).LT.PS(1)) GO TO 120
+        SII=PS(1)
+        PS(1)=PS(3)
+        PS(3)=SII
+120     CONTINUE
+        IF(IM.NE.1) GO TO 150
+        DO 140 I=1,3
+c          SSS(K,I)=PS(I)
+          SSSL(K,I)=PS(I)
+140     CONTINUE
+        GO TO 100
+c150     GMV(K)=ABS(PS(1)-PS(3))*1.0E-6
+150     GMVL(K)=ABS(PS(1)-PS(3))*1.0E-6
 100   CONTINUE
 170   FORMAT(I6,E15.6)
 190   FORMAT(I6,6E12.4)
+
       RETURN
       END
 
@@ -2731,6 +3001,7 @@ c      implicit real*8(a-h,o-z)
       COMMON /A4/N,NH,MX,JR(3,MAXN)
       COMMON /NJX/NJJ,MBJ,HDMAX,hdam(100),hhy(100),ii0(100),HHY2(100)
 
+      integer :: JRR(3,5000)
       integer :: Ns, Nt
       integer :: AllocateStatus
 
@@ -2763,6 +3034,9 @@ c        K=JC(I)
         JRL(1,idx)=L
         JRL(2,idx)=M
         JRL(3,idx)=N
+c        if( iN_lg(I) == 827 ) then
+c         write(*,*) 'IN MR: 827, I,L,M,N =', I, L, M, N
+c        endif
 20    CONTINUE
       CALL MJZDDH(KK,NO)
       N=0
@@ -2780,21 +3054,21 @@ c        if(jr(j,i) > 0) goto 50
 
 c      write(*,*) 'mype=',mype,'N=', N, 'knode,knode_i=', knode, knode_i
 
-      if( mype .eq. 0) then
-        nupdate(0) = 0
-        nupdate(1) = N
-        do jpe=1,npes-1
-          call My_recvai(0,jpe,nupdate(jpe+1),1)
-          nupdate(jpe+1) = nupdate(jpe+1)+nupdate(jpe)
-        enddo
-        do jpe=1,npes-1
-          call My_sendai(jpe,0,nupdate(jpe),1)
-        enddo
-        Ns = nupdate(mype)
-      else
-        call My_sendai(0,mype,N,1)
-        call My_recvai(mype,0,Ns,1)
-      endif
+c      if( mype .eq. 0) then
+c        nupdate(0) = 0
+c        nupdate(1) = N
+c        do jpe=1,npes-1
+c          call My_recvai(0,jpe,nupdate(jpe+1),1)
+c          nupdate(jpe+1) = nupdate(jpe+1)+nupdate(jpe)
+c        enddo
+c        do jpe=1,npes-1
+c          call My_sendai(jpe,0,nupdate(jpe),1)
+c        enddo
+c        Ns = nupdate(mype)
+c      else
+c        call My_sendai(0,mype,N,1)
+c        call My_recvai(mype,0,Ns,1)
+c      endif
 c      write(*,*) 'mype, N, Ns =', mype, N, Ns
       
       N_update = N
@@ -2807,26 +3081,39 @@ c      write(*,*) 'mype, N, Ns =', mype, N, Ns
       IF (AllocateStatus .NE. 0) STOP "* allocate update_index error *"
      
 c      print *,'mype,knode,knode_i,NO=',mype,knode,knode_i,NO
-      Nt = 0
-      do i=1, NO
+c      Nt = 0
+c      do i=1, NO
+c        do j=1, 3
+c          if( JRL(j,i) > 0 ) then
+c            Nt = Nt + 1
+c            if( Nt <=0 .or. Nt > N ) then
+c               print *,'Error!!i,j,nt=', i,j,nt
+c               call My_endjob(ierr)
+c            endif
+c            JRG(j,i) = JRL(j,i) + Ns
+c            update(Nt) = JRG(j,i)
+c            update_index(Nt) = JRL(j,i)
+c          endif
+c        enddo
+c      enddo
+c      if(Nt .ne. N_update) then
+c        write(*,*) "Error,Nt, N_update=", Nt, N_update
+c        call My_endjob(ierr)
+c      endif
+
+      write(*,*)'mype,NP=', mype,NP
+      open(21,file='JRG',form='formatted',status='old')
+      do i=1,NP
+        read(21,*) itmp,(JRR(j,i),j=1,3)
+      enddo
+      close(21)
+      write(*,*) 'READ JRG file ok.....', knode
+      do i=1, knode_i
         do j=1, 3
-          if( JRL(j,i) > 0 ) then
-            Nt = Nt + 1
-            if( Nt <=0 .or. Nt > N ) then
-               print *,'Error!!i,j,nt=', i,j,nt
-               call My_endjob(ierr)
-            endif
-            JRG(j,i) = JRL(j,i) + Ns
-            update(Nt) = JRG(j,i)
-            update_index(Nt) = JRL(j,i)
-          endif
+          JRG(j,i) = JRR(j,iN_lg(i))
         enddo
       enddo
-      if(Nt .ne. N_update) then
-        write(*,*) "Error,Nt, N_update=", Nt, N_update
-        call My_endjob(ierr)
-      endif
-
+      ! 从相邻子区域得到和整理边界扩展节点方程号
       N_external = 0
       write(ext,'(i5)') mype
       filename='conn_' // trim(adjustl(ext))
@@ -2847,7 +3134,6 @@ c        write(*,*) 'mype, isend, ntmp_s=', mype, isend, ntmp
           endif
           do k=1,kdgof
             ipool((j-1)*kdgof+k) = JRG(k,inod)
-c            ipool((j-1)*kdgof+k) = 0
           enddo
         enddo
         call My_sendai(isend,mype,ipool,ntmp)
@@ -2883,8 +3169,26 @@ c              endif
       enddo
       close(21)
 
+      Nt = 0
+      do i=1, NO
+        do j=1, 3
+          if( JRL(j,i) > 0 ) then
+            Nt = Nt + 1
+            if( Nt <=0 .or. Nt > N ) then
+               print *,'Error!!i,j,nt=', i,j,nt
+               call My_endjob(ierr)
+            endif
+c            JRG(j,i) = JRL(j,i) + Ns
+            update(Nt) = JRG(j,i)
+            update_index(Nt) = JRL(j,i)
+          endif
+        enddo
+      enddo
+      if(Nt .ne. N_update) then
+        write(*,*) "Error,Nt, N_update=", Nt, N_update
+        call My_endjob(ierr)
+      endif
 c      write(*,*) mype,'--MR--N_update,N_external=',N_update,N_external
-c      write(*,*) mype,'nnode(1) = ', nnode(1)
 
 100   FORMAT('JRL=',4(4I4,2X))
 
@@ -2906,7 +3210,7 @@ c      implicit real*8(a-h,o-z)
       COMMON /STRU3/ICOL(125930000)
       DIMENSION ISEQ(160,510000),NSORT(159)
 
-      integer, dimension(:), allocatable :: nai
+      integer, dimension(:), allocatable :: nai, naj
       integer ise
 
       ! 根据单元信息计算非零元个数
@@ -2941,20 +3245,22 @@ C     !每个自由度最多81个相关自由度（含自身）.
           endif
           if( iv == 0)  cycle
           do j=1, kdgof
-            if( JRL(j, iv) == 0) cycle
+            ijn = JRL(j,iv)
+c            if( mype==0 .and. iv == 743 .and. j==1 ) 
+c     +         write(*,'(a,5i4)') '0--743,ie,i,j,JRL,JRG=',ie,i,j,JRL(j,iv),JRG(j,iv)
+            if( ijn == 0) cycle
             if( iv > knode_i) then
               write(*,*) 'Error!mype,iv,ie,knode,knode_i=',mype,iv,ie,knode,knode_i
               call My_endjob(ierr)
             endif
-            ijn = JRL(j,iv)
 C           !找出每个自由度的关联自由度，并存放在NAI内。这里找出的是整体编号
             do i1=1, 8
               iw = node((IE-1)*nnode(1)+i1)
               do j1=1, kdgof
                 ijn1 = JRG(j1,iw)
-                if( mype ==0 .and. ie == 40 ) then
-                  print *,'===40=== iw, j1, ijn1=', iw,j1,ijn1
-                endif
+c                if( mype ==0 .and. ijn == 89 ) then
+c                  print *,'===89=== iw, nodg, j1, ijn1=', iw,iN_lg(iw), j1,ijn1
+c                endif
                 if( ijn1 == 0 ) cycle
                 iexist = 0
                 do i2=1,na(ijn)
@@ -2999,6 +3305,23 @@ c      write(*,*) 'mype,nnz,na =', mype, nnz, na(N_update+1)
         am(i) = 0.D0
       enddo
       if( allocated(nai) ) deallocate(nai)
+
+      do i=1, N_update
+        n0 = na(i)+1
+        n1 = na(i+1)
+        allocate(nai(n1-n0+1), naj(n1-n0+1))
+        do j=n0, n1
+          nai(j-n0+1) = ia(j)
+          naj(j-n0+1) = j-n0+1
+        ENDDO
+        iv = 0
+        iu = n1-n0
+        call qsort(nai, naj, iv, iu)
+        do j=n0,n1
+          ia(j) = nai(j-n0+1)
+        enddo
+        deallocate(nai, naj)
+      ENDDO
 
       return
       end
@@ -3164,7 +3487,8 @@ Cc    WRITE(16,500) DET
       WRITE(16,500) DET
  600  FORMAT(1X,'FPJD ERROR***  ELEMENT(',I5,')',4X,'R=',F10.5,4X,'S=',
      *    F10.3,' T=',F10.5)
-      STOP
+c      STOP
+      call My_endjob(ierr)
       END
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!    SUBRUTINE RMSD    !!!!!!!!!!!!!!
@@ -3262,7 +3586,8 @@ C     IMPLICIT DOUBLE PRECISION (A-H,O-Z)
       WRITE(16,500) DET
  600  FORMAT(1X,'FPJD6 ERROR***  ELEMENT(',I5,')',4X,'R=',F10.5,4X,'S=',
      *    F10.3,' T=',F10.5)
-      STOP
+c      STOP
+      call My_endjob(ierr)
       END
 
       ! 计算单元体积
