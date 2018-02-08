@@ -1,7 +1,7 @@
 C===========================================================C
       Module ComData
         integer MAXN, MAXN1
-        parameter( MAXN=990000,MAXN1=510000 )
+        parameter( MAXN=9900000,MAXN1=5100000 )
 
         include 'mpif.h'
         integer :: ierr, mype, npes, jpe
@@ -14,7 +14,8 @@ C===========================================================C
         real*8, allocatable :: vol(:), etl(:), utl(:), gamtl(:)
         real*8, allocatable :: S0L(:), Q0L(:)
         ! 单元位移、应力等结果
-        real*8, allocatable :: disp(:,:), strl(:,:), epgl(:,:)
+        real*8, allocatable :: disp(:,:), GUVW(:,:)
+        real*8, allocatable :: strl(:,:), epgl(:,:)
         real*8, allocatable :: STRZL(:,:), EPGZL(:,:)
         real*8, allocatable :: DZL(:,:)
         real*8, allocatable :: SSSL(:,:), gmvl(:)
@@ -186,7 +187,13 @@ c         endif
 
          nextern = N_extern
          if ( allocated(b) ) deallocate(b, x)
-         allocate(b(N), x(N+nextern))
+         allocate(b(N), x(N+nextern+1000))
+         do i=1,N
+           b(i) = 0.D0
+         enddo
+         do i=1,N_extern
+           x(i) = 0.D0
+         enddo
 
          end subroutine
        end module solvmodule

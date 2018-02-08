@@ -335,7 +335,7 @@ c       Message_length = 1000
      +             ' dest id when mpisend...'
         call My_endjob(ierr)
       end if
-      if((nal .lt. 0).or.(nal .gt. 100000000)) then
+      if((nal .le. 0).or.(nal .gt. 100000000)) then
         write(*,*) 'Fatal error, array longth error when mpisend...'
         call My_endjob(ierr)
       end if
@@ -364,12 +364,12 @@ c
       if(messagetag .gt. MaxMsgTag) messagetag=mod(messagetag,MaxMsgTag)
 c
       if( iprint .ge. 1 ) then
-      write(*,'(a)') 'Start send one double precision message..........'
-      write(*,'(a,i5,a,i5)') 'This real message is from ',isrc,' to ',idest
+      write(*,'(a)') 'Start send one integer array message..........'
+      write(*,'(a,i5,a,i5)') 'This integer message is from ',isrc,' to ',idest
 c      write(*,*) 'The source computer node is',isrc
 c      write(*,*) 'The destination computer node is',nrecver
       write(*,*) 'Message tag is:',messagetag
-      write(*,*) 'This longth of this real array is',nal
+      write(*,*) 'This longth of this integer array is',nal
       if( iprint .gt. 1) write(*,9000) (iarray_s(i),i=1,nal)
       end if
 c
@@ -409,7 +409,7 @@ c
 c      
       if( iprint .eq. 1 ) then
         write(*,*) 'sent from',isrc, ' to ', idest
-        write(*,*) 'double precision one dimension array success!!!'
+        write(*,*) 'integer one dimension array success!!!'
       end if
 c
       mtimes = mtimes + 1
@@ -452,7 +452,7 @@ c       call timer(4,1)
      +           ' dest id when mpisend...'
       call My_endjob(ierr)
       end if
-      if((nal.lt.0).or.(nal.gt.100000000)) then
+      if((nal.le.0).or.(nal.gt.100000000)) then
       write(*,*) 'Fatal error, array longth error when recving...'
       call My_endjob(ierr)
       end if
@@ -485,7 +485,7 @@ c
       if(messagetag .gt. MaxMsgTag) messagetag=mod(messagetag,MaxMsgTag)
 c
       if( iprint .eq. 1 ) then
-       write(*,'(a)') 'Start receive one double precision message......'
+       write(*,'(a)') 'Start receive one integer array message......'
        write(*,'(2(a,i5))') 'This real message is from ',ns,' to ',nd
 c       write(*,*) 'The source computer node is',nsender
 c       write(*,*) 'The destination computer node is',nrecver
@@ -496,7 +496,7 @@ c
      &              mycomm,nstat,ierr)
 c
       if(nals.ne.nal) then
-       write(*,*) 'Different longth of double precision array received'
+       write(*,*) 'Different longth of integer array received'
        write(*,*) 'Fatal error'
        call My_endjob(ierr)
       end if
@@ -539,8 +539,8 @@ c
 c
       if( iprint .ge. 1 ) then
       write(*,*) 'receive from',nsource, ' to ', ndest
-      write(*,*) 'double precision one dimension array success!!!'
-      write(*,*) 'This longth of this real array is',nal
+      write(*,*) 'integer one dimension array success!!!'
+      write(*,*) 'This longth of this integer array is',nal
       if( iprint .gt. 1) write(*,9000) (iarray_r(i),i=1,nal)
       end if
 c

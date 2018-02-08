@@ -5,7 +5,7 @@ LIBS = libaztec.a $(PMETISROOT)/lib/libparmetis.a $(PMETISROOT)/lib/libmetis.a -
 
 BINDIR = ../bin
 CFLAGS = -DLINUX -std=c99 -DNDEBUG -DNDEBUG2 -DHAVE_EXECINFO_H -DHAVE_GETLINE -O3
-FFLAGS = -extend-source -O2 -mcmodel=medium
+FFLAGS = -extend-source -O2 -mcmodel=medium -shared-intel
 
 FC = mpif77
 CC = mpicc
@@ -16,7 +16,7 @@ OBJS = module.o pcs.o partmesh.o mylib.o partsub0.o partcoor.o solvsub.o qsort.o
 all: pcs
 
 pcs: $(OBJS)
-	$(FC) -o $@ $^ $(LIBS)
+	$(FC) $(FFLAGS) -o $@ $^ $(LIBS)
 	cp $@ $(BINDIR)
 
 .f.o:

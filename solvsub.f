@@ -54,9 +54,17 @@ C
 C      initialize AZTEC options
 C
        call AZ_defaults(options, params)
-       options(AZ_max_iter) = 100
-       options(AZ_solver) = AZ_bicgstab
+       options(AZ_max_iter) = 500000
+       options(AZ_solver) = AZ_gmres
+       options(AZ_solver) = AZ_cg
        options(AZ_precond) = AZ_sym_GS
+c       options(AZ_precond) = AZ_dom_decomp
+c       options(AZ_subdomain_solve) = AZ_ilut
+c       options(AZ_drop) = 1.D-08
+       options(AZ_poly_ord) = 10
+       options(AZ_scaling) = AZ_sym_diag
+       options(AZ_conv) = AZ_noscaled
+       options(AZ_output) = AZ_last
        params(AZ_tol) = 1.0D-12
 C
 C      Set rhs (delta function at grid center) and initialize guess
@@ -72,6 +80,9 @@ C
        call AZ_solve(sol, b, options, params, 0, bindx, 0, 0,
      $               0, val, data_org, status, proc_config)
 
+       do i=0, N_update+N_extern-1
+         x(i) = 0.D0
+       enddo
        do i=0, N_update-1
          x(i) = sol(update_index(i))
        enddo
